@@ -25,7 +25,6 @@ PostgreSQL: `warehouse` / `warehouse_pass` @ `127.0.0.1:5432` / `warehouse_inven
 ### 2. Backend
 
 ```bash
-cd warehouse-inventory
 python -m venv .venv
 # Windows:
 .venv\Scripts\activate
@@ -61,7 +60,7 @@ On a physical Android device, ensure the phone can reach your PC IP on port 8000
 ## Project layout
 
 ```
-warehouse-inventory/
+
   backend/     Django + DRF + PostgreSQL
   mobile/      Expo React Native
   docs/        Architecture, API, deployment, demo guide
