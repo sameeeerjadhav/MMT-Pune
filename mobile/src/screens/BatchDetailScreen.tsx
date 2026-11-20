@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { Image, ScrollView, Text } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
 import { inventoryApi, barcodeApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { Badge, Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle, Title } from '../components/ui';
@@ -20,7 +19,6 @@ export default function BatchDetailScreen({ route, navigation }: any) {
       setBatch(b.data);
       setHistory(h.data);
       if (b.data.barcode_value) {
-        const token = await SecureStore.getItemAsync('accessToken');
         const url = barcodeApi.labelUrl(b.data.barcode_value);
         // Prefer base64 from detail API so Image does not need auth headers.
         try {
@@ -28,7 +26,7 @@ export default function BatchDetailScreen({ route, navigation }: any) {
           if (detail.data.label_image_base64) {
             setLabelUri(`data:image/png;base64,${detail.data.label_image_base64}`);
           } else {
-            setLabelUri(token ? `${url}?t=${Date.now()}` : url);
+            setLabelUri(`${url}?t=${Date.now()}`);
           }
         } catch {
           setLabelUri(url);

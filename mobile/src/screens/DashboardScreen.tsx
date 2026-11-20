@@ -1,13 +1,27 @@
-import React, { useCallback, useState } from 'react';
-import { RefreshControl, ScrollView, Text, Pressable } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { dashboardApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
-import { Badge, Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle, Title } from '../components/ui';
+import { useAuth } from '../context/AuthContext';
+import {
+  ActionTile,
+  Badge,
+  Card,
+  ErrorState,
+  LoadingState,
+  Metric,
+  Muted,
+  SectionLabel,
+} from '../components/ui';
 import { colors } from '../theme/tokens';
+import { canAccess, roleLabel } from '../utils/roles';
 
 export default function DashboardScreen() {
   const navigation = useNavigation<any>();
+  const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -31,63 +45,102 @@ export default function DashboardScreen() {
     }, [])
   );
 
+  const actions = useMemo(() => {
+    const role = user?.role;
+    const items: { title: string; subtitle: string; tab: string; tone: any }[] = [];
+    if (canAccess(role, 'scanner')) {
+      items.push({ title: 'Scan', subtitle: 'Find stock fast', tab: 'Scanner', tone: 'primary' });
+    }
+    if (canAccess(role, 'withdrawal')) {
+      items.push({ title: 'Withdraw', subtitle: 'Ship / assemble', tab: 'Withdrawal', tone: 'accent' });
+    }
+    if (canAccess(role, 'warehouse')) {
+      items.push({ title: 'Racks', subtitle: 'Allocate / move', tab: 'Warehouse', tone: 'navy' });
+    }
+    if (canAccess(role, 'grn')) {
+      items.push({
+        title: canAccess(role, 'grnImport') ? 'GRN / Import' : 'GRN',
+        subtitle: canAccess(role, 'grnImport') ? 'Receive & import' : 'View receipts',
+        tab: 'GRN',
+        tone: 'success',
+      });
+    }
+    if (canAccess(role, 'reports')) {
+      items.push({ title: 'Reports', subtitle: 'Stock & FIFO', tab: 'Reports', tone: 'navy' });
+    }
+    if (canAccess(role, 'inventory')) {
+      items.push({ title: 'Inventory', subtitle: 'Batches & units', tab: 'Inventory', tone: 'primary' });
+    }
+    return items.slice(0, 6);
+  }, [user?.role]);
+
   if (loading && !data) return <LoadingState />;
   if (error && !data) return <ErrorState message={error} onRetry={load} />;
 
   return (
-    <Screen style={{ padding: 0 }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={{ padding: 16, paddingTop: insets.top + 12, paddingBottom: 36 }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
       >
-        <Title>Dashboard</Title>
+        <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12, letterSpacing: 0.7 }}>
+          {roleLabel(user?.role).toUpperCase()}
+        </Text>
+        <Text
+          style={{
+            fontSize: 30,
+            fontWeight: '800',
+            color: colors.navy,
+            letterSpacing: -0.5,
+            marginTop: 4,
+          }}
+        >
+          Hello, {user?.first_name || user?.username}
+        </Text>
         <Muted>Live warehouse overview from PostgreSQL</Muted>
 
-        <Card>
-          <Subtitle>Stock snapshot</Subtitle>
-          <Text style={styles.metric}>Available: {data?.available_quantity}</Text>
-          <Text>Total inventory units/qty: {data?.total_inventory}</Text>
-          <Text>Bulk batches: {data?.bulk_batches}</Text>
-          <Text>Individual units: {data?.individual_units}</Text>
-          <Text>Racks: {data?.total_racks}</Text>
-          <Text>Pending GRNs: {data?.pending_grns}</Text>
-        </Card>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 18 }}>
+          <Metric label="Available qty" value={data?.available_quantity ?? '—'} />
+          <Metric label="Bulk batches" value={data?.bulk_batches ?? '—'} />
+          <Metric label="Units" value={data?.individual_units ?? '—'} />
+        </View>
 
-        <Card>
-          <Subtitle>Quick actions</Subtitle>
-          <Button label="Scan Barcode" onPress={() => navigation.navigate('Scanner')} />
-          <Button label="Receive / GRN" variant="secondary" onPress={() => navigation.navigate('GRN')} />
-          <Button label="Manage Racks" variant="secondary" onPress={() => navigation.navigate('Warehouse')} />
-          <Button label="Withdraw Inventory" variant="success" onPress={() => navigation.navigate('Withdrawal')} />
-          <Button label="Reports" variant="secondary" onPress={() => navigation.navigate('Reports')} />
-        </Card>
+        <SectionLabel>Quick actions</SectionLabel>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          {actions.map((a) => (
+            <ActionTile
+              key={a.tab + a.title}
+              title={a.title}
+              subtitle={a.subtitle}
+              tone={a.tone}
+              onPress={() => navigation.navigate(a.tab)}
+            />
+          ))}
+        </View>
 
+        <SectionLabel>FIFO alerts</SectionLabel>
         <Card>
-          <Subtitle>FIFO alerts</Subtitle>
-          {(data?.fifo_alerts || []).length === 0 ? <Muted>No FIFO conflicts</Muted> : null}
+          {(data?.fifo_alerts || []).length === 0 ? <Muted>No FIFO conflicts right now</Muted> : null}
           {(data?.fifo_alerts || []).map((a: any, idx: number) => (
-            <Pressable key={idx} style={{ marginBottom: 8 }}>
+            <Pressable key={idx} style={{ marginBottom: idx === (data?.fifo_alerts?.length || 1) - 1 ? 0 : 12 }}>
               <Badge label="FIFO" tone="warning" />
-              <Text style={{ marginTop: 4, color: colors.text }}>
+              <Text style={{ marginTop: 6, color: colors.text, lineHeight: 20 }}>
                 {a.item}: withdraw {a.older} before {a.newer} (avail {a.older_available})
               </Text>
             </Pressable>
           ))}
         </Card>
 
+        <SectionLabel>Recent withdrawals</SectionLabel>
         <Card>
-          <Subtitle>Recent withdrawals</Subtitle>
+          {(data?.recent_withdrawals || []).length === 0 ? <Muted>No recent withdrawals</Muted> : null}
           {(data?.recent_withdrawals || []).map((w: any) => (
-            <Text key={w.id} style={{ marginBottom: 6 }}>
-              #{w.id} {w.purpose} — {w.user}
+            <Text key={w.id} style={{ marginBottom: 8, color: colors.text }}>
+              #{w.id} · {w.purpose} — {w.user}
             </Text>
           ))}
         </Card>
       </ScrollView>
-    </Screen>
+    </View>
   );
 }
-
-const styles = {
-  metric: { fontSize: 22, fontWeight: '800' as const, color: colors.navy, marginVertical: 6 },
-};

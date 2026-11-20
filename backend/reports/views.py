@@ -1,14 +1,16 @@
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsSupervisorOrAdmin
 from grn.models import GRN
 from inventory.models import InventoryBatch, InventoryUnit, StockAllocation
 from inventory.services.fifo import find_older_bulk
-from warehouses.models import RackTransfer
 from withdrawals.models import Withdrawal
 
 
 class StockReportView(APIView):
+    permission_classes = [IsSupervisorOrAdmin]
+
     def get(self, request):
         batches = list(
             InventoryBatch.objects.select_related('item').values(
@@ -24,6 +26,8 @@ class StockReportView(APIView):
 
 
 class GRNReportView(APIView):
+    permission_classes = [IsSupervisorOrAdmin]
+
     def get(self, request):
         return Response(
             list(
@@ -35,6 +39,8 @@ class GRNReportView(APIView):
 
 
 class WithdrawalReportView(APIView):
+    permission_classes = [IsSupervisorOrAdmin]
+
     def get(self, request):
         return Response(
             list(
@@ -46,6 +52,8 @@ class WithdrawalReportView(APIView):
 
 
 class RackOccupancyReportView(APIView):
+    permission_classes = [IsSupervisorOrAdmin]
+
     def get(self, request):
         allocations = StockAllocation.objects.filter(
             is_active=True, allocation_type='ACTUAL'
@@ -67,6 +75,8 @@ class RackOccupancyReportView(APIView):
 
 
 class FIFOReportView(APIView):
+    permission_classes = [IsSupervisorOrAdmin]
+
     def get(self, request):
         alerts = []
         for batch in InventoryBatch.objects.filter(available_qty__gt=0).select_related('item'):

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import * as SecureStore from 'expo-secure-store';
 import { authApi } from '../api/endpoints';
+import * as storage from '../utils/secureStorage';
 
 type User = {
   id: number;
@@ -29,14 +29,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const token = await SecureStore.getItemAsync('accessToken');
+        const token = await storage.getItem('accessToken');
         if (token) {
           const { data } = await authApi.profile();
           setUser(data);
         }
       } catch {
-        await SecureStore.deleteItemAsync('accessToken');
-        await SecureStore.deleteItemAsync('refreshToken');
+        await storage.deleteItem('accessToken');
+        await storage.deleteItem('refreshToken');
       } finally {
         setLoading(false);
       }
@@ -49,19 +49,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       async login(username, password) {
         const { data } = await authApi.login(username, password);
-        await SecureStore.setItemAsync('accessToken', data.access);
-        await SecureStore.setItemAsync('refreshToken', data.refresh);
+        await storage.setItem('accessToken', data.access);
+        await storage.setItem('refreshToken', data.refresh);
         setUser(data.user);
       },
       async logout() {
-        const refresh = await SecureStore.getItemAsync('refreshToken');
+        const refresh = await storage.getItem('refreshToken');
         try {
           if (refresh) await authApi.logout(refresh);
         } catch {
           // ignore
         }
-        await SecureStore.deleteItemAsync('accessToken');
-        await SecureStore.deleteItemAsync('refreshToken');
+        await storage.deleteItem('accessToken');
+        await storage.deleteItem('refreshToken');
         setUser(null);
       },
       async refreshProfile() {

@@ -1,6 +1,6 @@
 import axios from 'axios';
-import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
+import * as storage from '../utils/secureStorage';
 
 const hostUri = Constants.expoConfig?.hostUri;
 const debuggerHost = hostUri?.split(':')[0];
@@ -16,7 +16,7 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use(async (config) => {
-  const token = await SecureStore.getItemAsync('accessToken');
+  const token = await storage.getItem('accessToken');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -29,17 +29,17 @@ api.interceptors.response.use(
     const original = error.config;
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
-      const refresh = await SecureStore.getItemAsync('refreshToken');
+      const refresh = await storage.getItem('refreshToken');
       if (refresh) {
         try {
           const { data } = await axios.post(`${API_BASE_URL}/auth/refresh/`, { refresh });
-          await SecureStore.setItemAsync('accessToken', data.access);
-          if (data.refresh) await SecureStore.setItemAsync('refreshToken', data.refresh);
+          await storage.setItem('accessToken', data.access);
+          if (data.refresh) await storage.setItem('refreshToken', data.refresh);
           original.headers.Authorization = `Bearer ${data.access}`;
           return api(original);
         } catch {
-          await SecureStore.deleteItemAsync('accessToken');
-          await SecureStore.deleteItemAsync('refreshToken');
+          await storage.deleteItem('accessToken');
+          await storage.deleteItem('refreshToken');
         }
       }
     }

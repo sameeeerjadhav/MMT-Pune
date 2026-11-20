@@ -3,10 +3,14 @@ import { FlatList, Pressable, Text } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { grnApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { Button, Card, ErrorState, LoadingState, Muted, Screen, Title } from '../components/ui';
+import { canAccess } from '../utils/roles';
 
 export default function GRNListScreen() {
   const navigation = useNavigation<any>();
+  const { user } = useAuth();
+  const canImport = canAccess(user?.role, 'grnImport');
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -36,7 +40,14 @@ export default function GRNListScreen() {
   return (
     <Screen>
       <Title>GRN</Title>
-      <Button label="Import / Add Sample GRN" onPress={() => navigation.navigate('GRNImport')} />
+      <Muted>
+        {canImport
+          ? 'Supervisors and admins can import mock GRNs from M1/Workroom samples.'
+          : 'View received goods. Import is limited to supervisors and admins.'}
+      </Muted>
+      {canImport ? (
+        <Button label="Import / Add Sample GRN" onPress={() => navigation.navigate('GRNImport')} />
+      ) : null}
       <FlatList
         data={rows}
         keyExtractor={(item) => String(item.id)}
