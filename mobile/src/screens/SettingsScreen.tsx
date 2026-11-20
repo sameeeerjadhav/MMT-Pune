@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Text } from 'react-native';
+import { Text, View } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../api/client';
 import { healthApi } from '../api/endpoints';
-import { Button, Card, Muted, Screen, Subtitle, Title } from '../components/ui';
+import { Badge, Button, Card, Muted, Screen, SectionLabel, Subtitle, Title } from '../components/ui';
 import { activeScanner } from '../services/hardware/scanner';
 import { activePrinter } from '../services/hardware/printer';
+import { colors } from '../theme/tokens';
+import { roleBlurb, roleLabel } from '../utils/roles';
 
 export default function SettingsScreen() {
   const { user, logout } = useAuth();
@@ -25,27 +27,39 @@ export default function SettingsScreen() {
   return (
     <Screen>
       <Title>Settings</Title>
-      <Card>
-        <Subtitle>Profile</Subtitle>
-        <Text>
+      <Muted>Account, connection, and device adapters.</Muted>
+
+      <Card style={{ marginTop: 12 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Subtitle>Profile</Subtitle>
+          <Badge
+            label={roleLabel(user?.role)}
+            tone={user?.role === 'ADMIN' ? 'danger' : user?.role === 'SUPERVISOR' ? 'warning' : 'primary'}
+          />
+        </View>
+        <Text style={{ fontWeight: '700', color: colors.navy, fontSize: 16 }}>
           {user?.first_name} {user?.last_name}
         </Text>
         <Muted>
-          {user?.username} | {user?.role} | {user?.employee_id}
+          {user?.username} · {user?.employee_id || 'no employee id'}
         </Muted>
+        <Muted>{roleBlurb(user?.role)}</Muted>
       </Card>
+
+      <SectionLabel>Connection</SectionLabel>
       <Card>
-        <Subtitle>API connection</Subtitle>
-        <Text>{API_BASE_URL}</Text>
+        <Text style={{ color: colors.text }}>{API_BASE_URL}</Text>
         <Muted>Status: {apiStatus}</Muted>
       </Card>
+
+      <SectionLabel>Hardware HAL</SectionLabel>
       <Card>
-        <Subtitle>Scanner / Printer</Subtitle>
-        <Text>Scanner HAL: {scannerStatus} (camera/manual for demo)</Text>
-        <Text>Printer HAL: {printerStatus} (preview only)</Text>
-        <Muted>Zebra DataWedge / Link-OS stubs are present but not hardware-tested.</Muted>
+        <Text style={{ color: colors.text }}>Scanner: {scannerStatus}</Text>
+        <Text style={{ color: colors.text }}>Printer: {printerStatus}</Text>
+        <Muted>Camera/manual for demo. Zebra stubs are not hardware-tested.</Muted>
       </Card>
-      <Button label="Logout" variant="danger" onPress={logout} />
+
+      <Button label="Sign out" variant="danger" onPress={logout} />
     </Screen>
   );
 }

@@ -2,9 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { ScrollView, Text } from 'react-native';
 import { grnApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle, Title } from '../components/ui';
+import { canAccess } from '../utils/roles';
 
 export default function GRNDetailScreen({ route }: any) {
+  const { user } = useAuth();
+  const canGenerate = canAccess(user?.role, 'grnImport');
   const { id } = route.params;
   const [grn, setGrn] = useState<any>(null);
   const [error, setError] = useState('');
@@ -50,15 +54,19 @@ export default function GRNDetailScreen({ route }: any) {
             ))}
           </Card>
         ))}
-        <Button
-          label="Generate missing barcodes"
-          variant="secondary"
-          onPress={async () => {
-            const { data } = await grnApi.generateBarcodes(id);
-            setMsg(`Created ${data.created} barcodes`);
-            setGrn(data.grn);
-          }}
-        />
+        {canGenerate ? (
+          <Button
+            label="Generate missing barcodes"
+            variant="secondary"
+            onPress={async () => {
+              const { data } = await grnApi.generateBarcodes(id);
+              setMsg(`Created ${data.created} barcodes`);
+              setGrn(data.grn);
+            }}
+          />
+        ) : (
+          <Muted>Barcode generation is limited to supervisors and admins.</Muted>
+        )}
         {msg ? <Muted>{msg}</Muted> : null}
       </ScrollView>
     </Screen>

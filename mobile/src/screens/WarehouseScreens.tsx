@@ -1,12 +1,16 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, ScrollView, Text } from 'react-native';
+import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { warehouseApi, inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { Button, Card, ErrorState, Input, LoadingState, Muted, Screen, Subtitle, Title } from '../components/ui';
 import { colors } from '../theme/tokens';
+import { canAccess } from '../utils/roles';
 
 export function WarehouseListScreen({ navigation }: any) {
+  const { user } = useAuth();
+  const canCreate = canAccess(user?.role, 'createRack');
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [racks, setRacks] = useState<any[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<number | null>(null);
@@ -93,15 +97,25 @@ export function WarehouseListScreen({ navigation }: any) {
         ))}
       </Card>
 
-      <Button label="Allocate stock" onPress={() => navigation.navigate('Allocate')} />
-      <Button label="Transfer stock" variant="secondary" onPress={() => navigation.navigate('Transfer')} />
-      <Button
-        label={showCreate ? 'Cancel new rack' : 'Create rack'}
-        variant="secondary"
-        onPress={() => setShowCreate((v) => !v)}
-      />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <Button label="Allocate" onPress={() => navigation.navigate('Allocate')} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Button label="Transfer" variant="secondary" onPress={() => navigation.navigate('Transfer')} />
+        </View>
+      </View>
+      {canCreate ? (
+        <Button
+          label={showCreate ? 'Cancel new rack' : 'Create rack'}
+          variant="ghost"
+          onPress={() => setShowCreate((v) => !v)}
+        />
+      ) : (
+        <Muted>Rack creation is available to supervisors and admins.</Muted>
+      )}
 
-      {showCreate ? (
+      {showCreate && canCreate ? (
         <Card>
           <Subtitle>New rack</Subtitle>
           <Input placeholder="Rack code (e.g. R-11)" value={newCode} onChangeText={setNewCode} autoCapitalize="characters" />

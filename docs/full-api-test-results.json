@@ -1,0 +1,107 @@
+[
+    {
+        "Step":  "API login employee",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Employee dashboard",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Employee inventory list",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Employee scan BATCH-002",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Employee FIFO blocks BATCH-002 withdraw",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Employee cannot FIFO override",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Employee cannot import GRN",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Employee locations list",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Employee cannot access reports stock",
+        "Status":  "FAIL",
+        "Detail":  "reports currently open to employee (backend allows)"
+    },
+    {
+        "Step":  "API login supervisor",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Supervisor FIFO override succeeds",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Supervisor GRN list",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Supervisor import sample GRN",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Supervisor duplicate GRN rejected",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Supervisor reports fifo",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Supervisor racks list",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "API login admin",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Admin all reports",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Admin barcode label PNG",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Admin older batch withdraw OK",
+        "Status":  "PASS",
+        "Detail":  ""
+    },
+    {
+        "Step":  "Admin profile",
+        "Status":  "PASS",
+        "Detail":  ""
+    }
+]
