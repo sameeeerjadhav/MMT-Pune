@@ -57,6 +57,7 @@ class StockAllocationSerializer(serializers.ModelSerializer):
 class InventoryBatchSerializer(serializers.ModelSerializer):
     item = ItemSerializer(read_only=True)
     barcode_value = serializers.CharField(source='barcode.value', read_only=True)
+    barcode_label_data = serializers.JSONField(source='barcode.label_data', read_only=True)
     allocations = StockAllocationSerializer(many=True, read_only=True)
     grn_number = serializers.CharField(source='grn_line.grn.grn_number', read_only=True)
 
@@ -68,6 +69,7 @@ class InventoryBatchSerializer(serializers.ModelSerializer):
 class InventoryUnitSerializer(serializers.ModelSerializer):
     item = ItemSerializer(read_only=True)
     barcode_value = serializers.CharField(source='barcode.value', read_only=True)
+    barcode_label_data = serializers.JSONField(source='barcode.label_data', read_only=True)
     allocations = StockAllocationSerializer(many=True, read_only=True)
     grn_number = serializers.CharField(source='grn_line.grn.grn_number', read_only=True)
 

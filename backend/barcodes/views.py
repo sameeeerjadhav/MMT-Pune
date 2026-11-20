@@ -1,10 +1,11 @@
-from rest_framework import status
+from django.http import HttpResponse
+from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework import serializers
 
+from accounts.permissions import IsWarehouseStaff
 from barcodes.models import Barcode, PrintLog
-from barcodes.services import create_barcode
+from barcodes.services import create_barcode, label_image_base64, render_label_png_bytes
 from config.exceptions import ApiError
 
 
@@ -15,6 +16,8 @@ class BarcodeSerializer(serializers.ModelSerializer):
 
 
 class GenerateBarcodeView(APIView):
+    permission_classes = [IsWarehouseStaff]
+
     def post(self, request):
         entity_type = request.data.get('entity_type')
         entity_id = request.data.get('entity_id')
@@ -33,10 +36,29 @@ class BarcodeDetailView(APIView):
             barcode = Barcode.objects.get(value=value)
         except Barcode.DoesNotExist:
             raise ApiError('NOT_FOUND', 'Barcode not found', status_code=404)
-        return Response(BarcodeSerializer(barcode).data)
+        data = BarcodeSerializer(barcode).data
+        data['label_image_base64'] = label_image_base64(barcode)
+        data['label_image_content_type'] = 'image/png'
+        return Response(data)
+
+
+class BarcodeLabelImageView(APIView):
+    """Return a Code 128 warehouse label PNG."""
+
+    def get(self, request, value):
+        try:
+            barcode = Barcode.objects.get(value=value)
+        except Barcode.DoesNotExist:
+            raise ApiError('NOT_FOUND', 'Barcode not found', status_code=404)
+        png = render_label_png_bytes(barcode)
+        response = HttpResponse(png, content_type='image/png')
+        response['Content-Disposition'] = f'inline; filename="{barcode.value}.png"'
+        return response
 
 
 class PrintLogView(APIView):
+    permission_classes = [IsWarehouseStaff]
+
     def post(self, request, value):
         try:
             barcode = Barcode.objects.get(value=value)

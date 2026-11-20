@@ -6,8 +6,10 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import Role
-from inventory.models import Category, InventoryBatch, Item, Vendor
+from audit.models import AuditLog
+from barcodes.services import create_barcode, label_payload, render_label_png_bytes
 from grn.models import GRN, GRNLine
+from inventory.models import Category, InventoryBatch, InventoryUnit, Item, Vendor
 
 
 User = get_user_model()
@@ -15,25 +17,46 @@ User = get_user_model()
 
 class FifoApiTests(TestCase):
     def setUp(self):
-        role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})
-        self.user = User.objects.create_user(username='tester', password='pass12345', role=role)
+        self.admin_role, _ = Role.objects.get_or_create(
+            code='ADMIN', defaults={'name': 'Administrator'}
+        )
+        self.supervisor_role, _ = Role.objects.get_or_create(
+            code='SUPERVISOR', defaults={'name': 'Supervisor'}
+        )
+        self.employee_role, _ = Role.objects.get_or_create(
+            code='WAREHOUSE_EMPLOYEE', defaults={'name': 'Warehouse Employee'}
+        )
+        self.admin = User.objects.create_user(
+            username='admin_tester', password='pass12345', role=self.admin_role
+        )
+        self.supervisor = User.objects.create_user(
+            username='supervisor_tester', password='pass12345', role=self.supervisor_role
+        )
+        self.employee = User.objects.create_user(
+            username='employee_tester', password='pass12345', role=self.employee_role
+        )
         self.client = APIClient()
-        self.client.force_authenticate(user=self.user)
+        self.client.force_authenticate(user=self.admin)
 
         cat = Category.objects.create(code='T', name='Test')
         vendor = Vendor.objects.create(code='TV', name='Test Vendor')
-        item = Item.objects.create(
+        self.item = Item.objects.create(
             item_code='TEST-BOLT', name='Test Bolt', category=cat, inventory_type='BULK'
         )
         grn1 = GRN.objects.create(
             grn_number='G-OLD', vendor=vendor, received_date=timezone.now(), external_system='MANUAL'
         )
         line1 = GRNLine.objects.create(
-            grn=grn1, item=item, received_qty=100, uom='EA', testing_status='PASSED', classification='BULK'
+            grn=grn1,
+            item=self.item,
+            received_qty=100,
+            uom='EA',
+            testing_status='PASSED',
+            classification='BULK',
         )
         self.old = InventoryBatch.objects.create(
             batch_code='OLD',
-            item=item,
+            item=self.item,
             grn_line=line1,
             received_qty=100,
             available_qty=100,
@@ -44,11 +67,16 @@ class FifoApiTests(TestCase):
             grn_number='G-NEW', vendor=vendor, received_date=timezone.now(), external_system='MANUAL'
         )
         line2 = GRNLine.objects.create(
-            grn=grn2, item=item, received_qty=50, uom='EA', testing_status='PASSED', classification='BULK'
+            grn=grn2,
+            item=self.item,
+            received_qty=50,
+            uom='EA',
+            testing_status='PASSED',
+            classification='BULK',
         )
         self.new = InventoryBatch.objects.create(
             batch_code='NEW',
-            item=item,
+            item=self.item,
             grn_line=line2,
             received_qty=50,
             available_qty=50,
@@ -74,3 +102,232 @@ class FifoApiTests(TestCase):
         self.assertEqual(res.status_code, 201)
         self.old.refresh_from_db()
         self.assertEqual(self.old.available_qty, Decimal('95'))
+
+    def test_supervisor_can_override_fifo(self):
+        self.client.force_authenticate(user=self.supervisor)
+        res = self.client.post(
+            '/api/withdrawals/',
+            {
+                'purpose': 'SHIPMENT',
+                'batch_id': self.new.id,
+                'quantity': '5',
+                'override_reason': 'Urgent assembly line shortage',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201)
+        self.new.refresh_from_db()
+        self.assertEqual(self.new.available_qty, Decimal('45'))
+        self.assertTrue(
+            AuditLog.objects.filter(action='FIFO_OVERRIDE', entity_id=self.new.id).exists()
+        )
+
+    def test_employee_cannot_override_fifo(self):
+        self.client.force_authenticate(user=self.employee)
+        res = self.client.post(
+            '/api/withdrawals/',
+            {
+                'purpose': 'SHIPMENT',
+                'batch_id': self.new.id,
+                'quantity': '5',
+                'override_reason': 'Trying to bypass',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.data['code'], 'FORBIDDEN')
+
+
+class UnitFifoApiTests(TestCase):
+    def setUp(self):
+        role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})
+        self.user = User.objects.create_user(username='unit_tester', password='pass12345', role=role)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        cat = Category.objects.create(code='U', name='Units')
+        vendor = Vendor.objects.create(code='UV', name='Unit Vendor')
+        item = Item.objects.create(
+            item_code='TEST-MOTOR', name='Test Motor', category=cat, inventory_type='UNIT'
+        )
+        grn1 = GRN.objects.create(
+            grn_number='GU-OLD', vendor=vendor, received_date=timezone.now(), external_system='MANUAL'
+        )
+        line1 = GRNLine.objects.create(
+            grn=grn1,
+            item=item,
+            received_qty=1,
+            uom='EA',
+            testing_status='PASSED',
+            classification='UNIT',
+        )
+        self.old_unit = InventoryUnit.objects.create(
+            unit_code='UNIT-OLD',
+            item=item,
+            grn_line=line1,
+            status='AVAILABLE',
+            testing_status='PASSED',
+            received_at=timezone.now() - timezone.timedelta(days=3),
+        )
+        grn2 = GRN.objects.create(
+            grn_number='GU-NEW', vendor=vendor, received_date=timezone.now(), external_system='MANUAL'
+        )
+        line2 = GRNLine.objects.create(
+            grn=grn2,
+            item=item,
+            received_qty=1,
+            uom='EA',
+            testing_status='PASSED',
+            classification='UNIT',
+        )
+        self.new_unit = InventoryUnit.objects.create(
+            unit_code='UNIT-NEW',
+            item=item,
+            grn_line=line2,
+            status='AVAILABLE',
+            testing_status='PASSED',
+            received_at=timezone.now(),
+        )
+
+    def test_fifo_blocks_newer_unit(self):
+        res = self.client.post(
+            '/api/withdrawals/',
+            {'purpose': 'ASSEMBLY', 'unit_id': self.new_unit.id},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 409)
+        self.assertEqual(res.data['code'], 'FIFO_VIOLATION')
+
+    def test_older_unit_withdraw_ok(self):
+        res = self.client.post(
+            '/api/withdrawals/',
+            {'purpose': 'ASSEMBLY', 'unit_id': self.old_unit.id},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201)
+        self.old_unit.refresh_from_db()
+        self.assertEqual(self.old_unit.status, 'WITHDRAWN')
+
+
+class BarcodeLabelTests(TestCase):
+    def setUp(self):
+        role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})
+        self.user = User.objects.create_user(username='label_tester', password='pass12345', role=role)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        self.barcode = create_barcode(
+            'BATCH',
+            999001,
+            label_payload(
+                item_name='Steel Bolt',
+                item_code='STL-BOLT',
+                grn_number='GRN-1001',
+                batch_or_unit='BATCH-001',
+                quantity=100,
+            ),
+        )
+
+    def test_render_code128_png(self):
+        png = render_label_png_bytes(self.barcode)
+        self.assertTrue(png.startswith(b'\x89PNG'))
+
+    def test_label_image_endpoint(self):
+        res = self.client.get(f'/api/barcodes/{self.barcode.value}/label.png')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res['Content-Type'], 'image/png')
+        self.assertTrue(res.content.startswith(b'\x89PNG'))
+
+    def test_barcode_detail_includes_base64_label(self):
+        res = self.client.get(f'/api/barcodes/{self.barcode.value}/')
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('label_image_base64', res.data)
+        self.assertTrue(len(res.data['label_image_base64']) > 100)
+
+
+class GrnImportDuplicateTests(TestCase):
+    def setUp(self):
+        role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})
+        self.user = User.objects.create_user(username='grn_tester', password='pass12345', role=role)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        Category.objects.create(code='FAST', name='Fasteners')
+        Vendor.objects.create(code='V1', name='Vendor 1')
+        self.payload = {
+            'grn_number': 'GRN-DUP-1',
+            'external_system': 'MOCK',
+            'external_ref': 'MOCK-DUP-1',
+            'vendor_code': 'V1',
+            'vendor_name': 'Vendor 1',
+            'received_date': timezone.now().isoformat(),
+            'lines': [
+                {
+                    'item_code': 'DUP-ITEM',
+                    'item_name': 'Dup Item',
+                    'category_code': 'FAST',
+                    'category_name': 'Fasteners',
+                    'received_qty': '10',
+                    'uom': 'EA',
+                    'classification': 'BULK',
+                    'testing_status': 'PASSED',
+                    'batch_number': 'DUP-BATCH-1',
+                }
+            ],
+        }
+
+    def test_duplicate_import_rejected(self):
+        first = self.client.post('/api/grns/import/', self.payload, format='json')
+        self.assertEqual(first.status_code, 201)
+        second = self.client.post('/api/grns/import/', self.payload, format='json')
+        self.assertEqual(second.status_code, 409)
+        self.assertEqual(second.data['code'], 'DUPLICATE_GRN')
+
+
+class ConcurrentWithdrawSmokeTests(TestCase):
+    """Sequential smoke test approximating concurrent stock protection."""
+
+    def setUp(self):
+        role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})
+        self.user = User.objects.create_user(username='concurrent', password='pass12345', role=role)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        cat = Category.objects.create(code='C', name='Conc')
+        vendor = Vendor.objects.create(code='CV', name='Conc Vendor')
+        item = Item.objects.create(
+            item_code='CONC-BOLT', name='Conc Bolt', category=cat, inventory_type='BULK'
+        )
+        grn = GRN.objects.create(
+            grn_number='G-CONC', vendor=vendor, received_date=timezone.now(), external_system='MANUAL'
+        )
+        line = GRNLine.objects.create(
+            grn=grn,
+            item=item,
+            received_qty=10,
+            uom='EA',
+            testing_status='PASSED',
+            classification='BULK',
+        )
+        self.batch = InventoryBatch.objects.create(
+            batch_code='CONC-BATCH',
+            item=item,
+            grn_line=line,
+            received_qty=10,
+            available_qty=10,
+            testing_status='PASSED',
+            received_at=timezone.now(),
+        )
+
+    def test_cannot_overdraw_remaining_stock(self):
+        first = self.client.post(
+            '/api/withdrawals/',
+            {'purpose': 'SHIPMENT', 'batch_id': self.batch.id, 'quantity': '7'},
+            format='json',
+        )
+        self.assertEqual(first.status_code, 201)
+        second = self.client.post(
+            '/api/withdrawals/',
+            {'purpose': 'SHIPMENT', 'batch_id': self.batch.id, 'quantity': '5'},
+            format='json',
+        )
+        self.assertEqual(second.status_code, 400)
+        self.assertEqual(second.data['code'], 'INSUFFICIENT_STOCK')
+        self.batch.refresh_from_db()
+        self.assertEqual(self.batch.available_qty, Decimal('3'))

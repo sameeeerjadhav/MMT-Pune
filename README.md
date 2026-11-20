@@ -14,6 +14,12 @@ Do not use these credentials in production.
 
 ## Quick start (local)
 
+### Requirements
+
+- Python **3.12+** (Django 6.x)
+- Node.js 20+ for Expo
+- Docker (recommended) or a local PostgreSQL 16 instance
+
 ### 1. Database
 
 ```bash
@@ -38,6 +44,7 @@ python manage.py runserver 0.0.0.0:8000
 
 - API health: http://127.0.0.1:8000/api/health/
 - Swagger: http://127.0.0.1:8000/api/docs/
+- Code 128 label example: `/api/barcodes/{value}/label.png`
 
 ### 3. Mobile
 
@@ -48,6 +55,14 @@ npx expo start
 ```
 
 On a physical Android device, ensure the phone can reach your PC IP on port 8000. The Axios client auto-uses the Expo debugger host IP when available.
+
+### Tests (without Docker)
+
+```bash
+# from repo root, with venv active
+set DJANGO_USE_SQLITE=1
+python backend/manage.py test inventory.tests.test_fifo
+```
 
 ## FIFO demo
 
@@ -60,12 +75,19 @@ On a physical Android device, ensure the phone can reach your PC IP on port 8000
 ## Project layout
 
 ```
-
-  backend/     Django + DRF + PostgreSQL
-  mobile/      Expo React Native
-  docs/        Architecture, API, deployment, demo guide
-  docker-compose.yml
+backend/     Django + DRF + PostgreSQL
+mobile/      Expo React Native (React Navigation)
+docs/        Architecture, API, deployment, demo guide
+docker-compose.yml
 ```
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Database design](docs/database-design.md)
+- [API](docs/api-documentation.md)
+- [Demo guide](docs/demo-guide.md)
+- [Deployment](docs/deployment-guide.md)
 
 ## Important limitations
 

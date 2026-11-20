@@ -56,6 +56,8 @@ export const reportsApi = {
 
 export const barcodeApi = {
   get: (value: string) => api.get(`/barcodes/${encodeURIComponent(value)}/`),
+  labelUrl: (value: string) =>
+    `${api.defaults.baseURL}/barcodes/${encodeURIComponent(value)}/label.png`,
   printLog: (value: string, payload?: unknown) =>
     api.post(`/barcodes/${encodeURIComponent(value)}/print-log/`, payload || {}),
 };

@@ -1,30 +1,62 @@
-import React, { useEffect, useState } from 'react';
-import { ScrollView, Text } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Pressable, ScrollView, Text } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { inventoryApi, withdrawalApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Button, Card, FifoAlert, Input, Muted, Screen, Subtitle, Title } from '../components/ui';
+import { Button, Card, FifoAlert, Input, LoadingState, Muted, Screen, Subtitle, Title } from '../components/ui';
 import { colors } from '../theme/tokens';
 
 export default function WithdrawalScreen({ route, navigation }: any) {
   const { user } = useAuth();
-  const initialBatchId = route.params?.batchId ? String(route.params.batchId) : '';
-  const initialUnitId = route.params?.unitId ? String(route.params.unitId) : '';
+  const paramBatchId = route.params?.batchId != null ? String(route.params.batchId) : '';
+  const paramUnitId = route.params?.unitId != null ? String(route.params.unitId) : '';
   const [purpose, setPurpose] = useState<'SHIPMENT' | 'ASSEMBLY'>('SHIPMENT');
-  const [batchId, setBatchId] = useState(initialBatchId);
-  const [unitId, setUnitId] = useState(initialUnitId);
+  const [batchId, setBatchId] = useState(paramBatchId);
+  const [unitId, setUnitId] = useState(paramUnitId);
   const [quantity, setQuantity] = useState('5');
   const [overrideReason, setOverrideReason] = useState('');
   const [validation, setValidation] = useState<any>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
   useEffect(() => {
-    if (initialBatchId || initialUnitId) {
+    if (paramBatchId) {
+      setBatchId(paramBatchId);
+      setUnitId('');
+    }
+    if (paramUnitId) {
+      setUnitId(paramUnitId);
+      setBatchId('');
+    }
+  }, [paramBatchId, paramUnitId]);
+
+  const loadHistory = async () => {
+    try {
+      const { data } = await withdrawalApi.list();
+      setHistory(Array.isArray(data) ? data : data.results || []);
+    } catch {
+      // list is secondary; ignore hard failure on main form
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      setHistoryLoading(true);
+      loadHistory();
+    }, [])
+  );
+
+  useEffect(() => {
+    if (paramBatchId || paramUnitId) {
       validate();
     }
-  }, []);
+  }, [paramBatchId, paramUnitId]);
 
   const validate = async () => {
     setError('');
@@ -35,6 +67,9 @@ export default function WithdrawalScreen({ route, navigation }: any) {
         payload.quantity = Number(quantity);
       } else if (unitId) {
         payload.unit_id = Number(unitId);
+      } else {
+        setError('Enter a batch or unit');
+        return;
       }
       const { data } = await withdrawalApi.validate(payload);
       setValidation(data);
@@ -61,6 +96,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
       }
       const { data } = await withdrawalApi.create(payload);
       setSuccess(`Withdrawal #${data.id} completed`);
+      await loadHistory();
       navigation.navigate('WithdrawalConfirm', { id: data.id });
     } catch (e: any) {
       const details = e?.response?.data?.details;
@@ -97,8 +133,24 @@ export default function WithdrawalScreen({ route, navigation }: any) {
         </Card>
 
         <Card>
-          <Input placeholder="Batch ID (bulk)" value={batchId} onChangeText={(t) => { setBatchId(t); setUnitId(''); }} keyboardType="numeric" />
-          <Input placeholder="Unit ID (individual)" value={unitId} onChangeText={(t) => { setUnitId(t); setBatchId(''); }} keyboardType="numeric" />
+          <Input
+            placeholder="Batch ID (bulk)"
+            value={batchId}
+            onChangeText={(t) => {
+              setBatchId(t);
+              setUnitId('');
+            }}
+            keyboardType="numeric"
+          />
+          <Input
+            placeholder="Unit ID (individual)"
+            value={unitId}
+            onChangeText={(t) => {
+              setUnitId(t);
+              setBatchId('');
+            }}
+            keyboardType="numeric"
+          />
           {batchId ? (
             <Input placeholder="Quantity" value={quantity} onChangeText={setQuantity} keyboardType="numeric" />
           ) : null}
@@ -121,7 +173,9 @@ export default function WithdrawalScreen({ route, navigation }: any) {
         {validation ? (
           <Card>
             <Subtitle>Validation</Subtitle>
-            <Text>{validation.type} {validation.batch_code || validation.unit_code}</Text>
+            <Text>
+              {validation.type} {validation.batch_code || validation.unit_code}
+            </Text>
             {validation.available_qty ? <Text>Available: {validation.available_qty}</Text> : null}
             {validation.location ? (
               <Text>
@@ -151,6 +205,26 @@ export default function WithdrawalScreen({ route, navigation }: any) {
         {error ? <Text style={{ color: colors.danger, marginBottom: 8 }}>{error}</Text> : null}
         {success ? <Text style={{ color: colors.success }}>{success}</Text> : null}
         <Button label="Confirm withdrawal" onPress={confirm} loading={loading} />
+
+        <Card>
+          <Subtitle>Recent withdrawals</Subtitle>
+          {historyLoading ? (
+            <LoadingState />
+          ) : history.length === 0 ? (
+            <Muted>No withdrawals yet</Muted>
+          ) : (
+            history.slice(0, 15).map((w) => (
+              <Pressable key={w.id} onPress={() => navigation.navigate('WithdrawalConfirm', { id: w.id })}>
+                <Text style={{ paddingVertical: 6, fontWeight: '600' }}>
+                  #{w.id} · {w.purpose}
+                </Text>
+                <Muted>
+                  {w.user_name || w.user} · {String(w.created_at).slice(0, 19)}
+                </Muted>
+              </Pressable>
+            ))
+          )}
+        </Card>
       </ScrollView>
     </Screen>
   );
@@ -159,29 +233,35 @@ export default function WithdrawalScreen({ route, navigation }: any) {
 export function WithdrawalConfirmScreen({ route }: any) {
   const { id } = route.params;
   const [data, setData] = useState<any>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    withdrawalApi.detail(id).then((r) => setData(r.data));
+    withdrawalApi
+      .detail(id)
+      .then((r) => setData(r.data))
+      .catch((e) => setError(getErrorMessage(e)));
   }, [id]);
 
   return (
     <Screen>
       <Title>Confirmed</Title>
+      {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
       {data ? (
         <Card>
           <Subtitle>Withdrawal #{data.id}</Subtitle>
           <Text>Purpose: {data.purpose}</Text>
           <Text>By: {data.user_name || data.user}</Text>
+          <Text>At: {String(data.created_at).slice(0, 19)}</Text>
           {(data.lines || []).map((l: any) => (
-            <Text key={l.id}>
+            <Text key={l.id} style={{ marginTop: 8 }}>
               {l.batch_code || l.unit_code} qty {l.quantity}
               {l.fifo_override ? ' (FIFO OVERRIDE)' : ''}
             </Text>
           ))}
         </Card>
-      ) : (
+      ) : !error ? (
         <Muted>Loading...</Muted>
-      )}
+      ) : null}
     </Screen>
   );
 }

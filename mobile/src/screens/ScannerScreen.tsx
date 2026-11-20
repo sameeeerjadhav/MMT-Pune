@@ -88,7 +88,12 @@ export default function ScannerScreen({ navigation }: any) {
               )}
               <Button
                 label="Withdraw"
-                onPress={() => navigation.navigate('Withdrawal', { batchId: result.batch.id })}
+                onPress={() =>
+                  navigation.navigate('Withdrawal', {
+                    screen: 'WithdrawalMain',
+                    params: { batchId: result.batch.id },
+                  })
+                }
               />
             </>
           ) : null}
@@ -101,12 +106,25 @@ export default function ScannerScreen({ navigation }: any) {
               ) : null}
               <Button
                 label="Withdraw unit"
-                onPress={() => navigation.navigate('Withdrawal', { unitId: result.unit.id })}
+                onPress={() =>
+                  navigation.navigate('Withdrawal', {
+                    screen: 'WithdrawalMain',
+                    params: { unitId: result.unit.id },
+                  })
+                }
               />
             </>
           ) : null}
           {result.type === 'RACK' ? (
-            <Button label="Open rack" onPress={() => navigation.navigate('RackDetail', { id: result.rack.id })} />
+            <Button
+              label="Open rack"
+              onPress={() =>
+                navigation.navigate('Warehouse', {
+                  screen: 'RackDetail',
+                  params: { id: result.rack.id },
+                })
+              }
+            />
           ) : null}
         </Card>
       ) : null}

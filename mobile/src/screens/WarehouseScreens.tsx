@@ -7,14 +7,24 @@ import { Button, Card, ErrorState, Input, LoadingState, Muted, Screen, Subtitle,
 import { colors } from '../theme/tokens';
 
 export function WarehouseListScreen({ navigation }: any) {
+  const [warehouses, setWarehouses] = useState<any[]>([]);
   const [racks, setRacks] = useState<any[]>([]);
+  const [selectedWarehouse, setSelectedWarehouse] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [newCode, setNewCode] = useState('');
+  const [newName, setNewName] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const load = async () => {
     try {
-      const { data } = await warehouseApi.racks();
-      setRacks(data);
+      const [wh, rackRes] = await Promise.all([warehouseApi.warehouses(), warehouseApi.racks()]);
+      setWarehouses(wh.data);
+      setRacks(rackRes.data);
+      if (!selectedWarehouse && wh.data.length) {
+        setSelectedWarehouse(wh.data[0].id);
+      }
       setError('');
     } catch (e) {
       setError(getErrorMessage(e));
@@ -30,21 +40,88 @@ export function WarehouseListScreen({ navigation }: any) {
     }, [])
   );
 
+  const filteredRacks = selectedWarehouse
+    ? racks.filter((r) => r.warehouse === selectedWarehouse || r.warehouse_id === selectedWarehouse)
+    : racks;
+
+  const createRack = async () => {
+    if (!selectedWarehouse || !newCode.trim()) {
+      setError('Select a warehouse and enter a rack code');
+      return;
+    }
+    setCreating(true);
+    setError('');
+    try {
+      await warehouseApi.createRack({
+        warehouse: selectedWarehouse,
+        code: newCode.trim().toUpperCase(),
+        name: newName.trim() || newCode.trim().toUpperCase(),
+      });
+      setNewCode('');
+      setNewName('');
+      setShowCreate(false);
+      await load();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} onRetry={load} />;
+  if (error && !racks.length) return <ErrorState message={error} onRetry={load} />;
 
   return (
     <Screen>
-      <Title>Racks</Title>
+      <Title>Warehouses</Title>
+      <Muted>Pick a warehouse, then manage racks, allocate, or transfer.</Muted>
+
+      <Card>
+        <Subtitle>Warehouse</Subtitle>
+        {warehouses.map((w) => (
+          <Pressable key={w.id} onPress={() => setSelectedWarehouse(w.id)}>
+            <Text
+              style={{
+                paddingVertical: 8,
+                fontWeight: selectedWarehouse === w.id ? '700' : '400',
+                color: selectedWarehouse === w.id ? colors.primary : colors.text,
+              }}
+            >
+              {w.code} — {w.name}
+            </Text>
+          </Pressable>
+        ))}
+      </Card>
+
       <Button label="Allocate stock" onPress={() => navigation.navigate('Allocate')} />
       <Button label="Transfer stock" variant="secondary" onPress={() => navigation.navigate('Transfer')} />
+      <Button
+        label={showCreate ? 'Cancel new rack' : 'Create rack'}
+        variant="secondary"
+        onPress={() => setShowCreate((v) => !v)}
+      />
+
+      {showCreate ? (
+        <Card>
+          <Subtitle>New rack</Subtitle>
+          <Input placeholder="Rack code (e.g. R-11)" value={newCode} onChangeText={setNewCode} autoCapitalize="characters" />
+          <Input placeholder="Rack name" value={newName} onChangeText={setNewName} />
+          <Button label="Save rack" onPress={createRack} loading={creating} />
+        </Card>
+      ) : null}
+
+      {error ? <Text style={{ color: colors.danger, marginBottom: 8 }}>{error}</Text> : null}
+
       <FlatList
-        data={racks}
+        data={filteredRacks}
         keyExtractor={(item) => String(item.id)}
+        ListHeaderComponent={<Subtitle>Racks ({filteredRacks.length})</Subtitle>}
         renderItem={({ item }) => (
           <Pressable onPress={() => navigation.navigate('RackDetail', { id: item.id })}>
             <Card>
-              <Text style={{ fontWeight: '700' }}>{item.code} — {item.name}</Text>
+              <Text style={{ fontWeight: '700' }}>
+                {item.code} — {item.name}
+              </Text>
               <Muted>
                 {item.warehouse_code} | Barcode {item.barcode_value}
               </Muted>
@@ -90,8 +167,8 @@ export function RackDetailScreen({ route }: any) {
         <Card>
           <Subtitle>Shelves / positions</Subtitle>
           {(rack.shelves || []).map((s: any) => (
-            <Text key={s.id}>
-              Shelf {s.code}: {(s.positions || []).map((p: any) => p.code).join(', ')}
+            <Text key={s.id} style={{ marginBottom: 4 }}>
+              Shelf {s.code}: {(s.positions || []).map((p: any) => `${p.code} (#${p.id})`).join(', ')}
             </Text>
           ))}
         </Card>
@@ -117,10 +194,113 @@ export function RackDetailScreen({ route }: any) {
 export function AllocateScreen() {
   const [locations, setLocations] = useState<any[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
-  const [batchId, setBatchId] = useState('');
-  const [positionId, setPositionId] = useState('');
+  const [batchId, setBatchId] = useState<number | null>(null);
+  const [positionId, setPositionId] = useState<number | null>(null);
+  const [quantity, setQuantity] = useState('');
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const [loc, inv] = await Promise.all([warehouseApi.locations(), inventoryApi.list({ type: 'BULK' })]);
+      setLocations(loc.data);
+      setBatches(inv.data.batches || []);
+    })();
+  }, []);
+
+  const selectedBatch = batches.find((b) => b.id === batchId);
+
+  return (
+    <Screen>
+      <ScrollView>
+        <Title>Allocate</Title>
+        <Muted>Assign a batch to a rack position (actual location).</Muted>
+
+        <Card>
+          <Subtitle>Select batch</Subtitle>
+          {batches.slice(0, 12).map((b) => (
+            <Pressable key={b.id} onPress={() => setBatchId(b.id)}>
+              <Text
+                style={{
+                  paddingVertical: 6,
+                  fontWeight: batchId === b.id ? '700' : '400',
+                  color: batchId === b.id ? colors.primary : colors.text,
+                }}
+              >
+                {b.batch_code} — avail {b.available_qty}
+              </Text>
+            </Pressable>
+          ))}
+        </Card>
+
+        <Card>
+          <Subtitle>Select destination</Subtitle>
+          {locations.slice(0, 20).map((l) => (
+            <Pressable key={l.id} onPress={() => setPositionId(l.id)}>
+              <Text
+                style={{
+                  paddingVertical: 6,
+                  fontWeight: positionId === l.id ? '700' : '400',
+                  color: positionId === l.id ? colors.primary : colors.text,
+                }}
+              >
+                {l.label}
+              </Text>
+            </Pressable>
+          ))}
+        </Card>
+
+        <Input
+          placeholder={selectedBatch ? `Quantity (max ${selectedBatch.available_qty})` : 'Quantity (optional)'}
+          value={quantity}
+          onChangeText={setQuantity}
+          keyboardType="numeric"
+        />
+        {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
+        {msg ? <Text style={{ color: colors.success }}>{msg}</Text> : null}
+        <Button
+          label="Allocate"
+          loading={loading}
+          onPress={async () => {
+            if (!batchId || !positionId) {
+              setError('Select batch and location');
+              return;
+            }
+            setLoading(true);
+            try {
+              const payload: any = {
+                batch_id: batchId,
+                position_id: positionId,
+                allocation_type: 'ACTUAL',
+              };
+              if (quantity) payload.quantity = Number(quantity);
+              await warehouseApi.allocate(payload);
+              setMsg('Allocated successfully');
+              setError('');
+            } catch (e) {
+              setError(getErrorMessage(e));
+              setMsg('');
+            } finally {
+              setLoading(false);
+            }
+          }}
+        />
+      </ScrollView>
+    </Screen>
+  );
+}
+
+export function TransferScreen() {
+  const [fromId, setFromId] = useState<number | null>(null);
+  const [toId, setToId] = useState<number | null>(null);
+  const [batchId, setBatchId] = useState<number | null>(null);
+  const [qty, setQty] = useState('10');
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+  const [locations, setLocations] = useState<any[]>([]);
+  const [batches, setBatches] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -133,87 +313,56 @@ export function AllocateScreen() {
   return (
     <Screen>
       <ScrollView>
-        <Title>Allocate</Title>
-        <Muted>Assign batch to a rack position (actual location).</Muted>
-        <Input placeholder="Batch ID" value={batchId} onChangeText={setBatchId} keyboardType="numeric" />
-        <Input placeholder="Position ID" value={positionId} onChangeText={setPositionId} keyboardType="numeric" />
-        <Card>
-          <Subtitle>Batches</Subtitle>
-          {batches.slice(0, 8).map((b) => (
-            <Text key={b.id} onPress={() => setBatchId(String(b.id))}>
-              {b.id}: {b.batch_code}
-            </Text>
-          ))}
-        </Card>
-        <Card>
-          <Subtitle>Locations</Subtitle>
-          {locations.slice(0, 12).map((l) => (
-            <Text key={l.id} onPress={() => setPositionId(String(l.id))}>
-              {l.id}: {l.label}
-            </Text>
-          ))}
-        </Card>
-        {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
-        {msg ? <Text style={{ color: colors.success }}>{msg}</Text> : null}
-        <Button
-          label="Allocate"
-          onPress={async () => {
-            try {
-              await warehouseApi.allocate({
-                batch_id: Number(batchId),
-                position_id: Number(positionId),
-                allocation_type: 'ACTUAL',
-              });
-              setMsg('Allocated successfully');
-              setError('');
-            } catch (e) {
-              setError(getErrorMessage(e));
-            }
-          }}
-        />
-      </ScrollView>
-    </Screen>
-  );
-}
-
-export function TransferScreen() {
-  const [fromId, setFromId] = useState('');
-  const [toId, setToId] = useState('');
-  const [batchId, setBatchId] = useState('');
-  const [qty, setQty] = useState('10');
-  const [msg, setMsg] = useState('');
-  const [error, setError] = useState('');
-  const [locations, setLocations] = useState<any[]>([]);
-
-  useEffect(() => {
-    warehouseApi.locations().then((r) => setLocations(r.data));
-  }, []);
-
-  return (
-    <Screen>
-      <ScrollView>
         <Title>Rack transfer</Title>
-        <Input placeholder="Batch ID" value={batchId} onChangeText={setBatchId} keyboardType="numeric" />
-        <Input placeholder="From position ID" value={fromId} onChangeText={setFromId} keyboardType="numeric" />
-        <Input placeholder="To position ID" value={toId} onChangeText={setToId} keyboardType="numeric" />
-        <Input placeholder="Quantity" value={qty} onChangeText={setQty} keyboardType="numeric" />
+        <Muted>Move batch quantity between positions. Source must have active stock.</Muted>
+
         <Card>
-          {locations.slice(0, 15).map((l) => (
-            <Text key={l.id}>
-              {l.id}: {l.label}
-            </Text>
+          <Subtitle>Batch</Subtitle>
+          {batches.slice(0, 12).map((b) => (
+            <Pressable key={b.id} onPress={() => setBatchId(b.id)}>
+              <Text style={{ paddingVertical: 6, fontWeight: batchId === b.id ? '700' : '400' }}>
+                {b.batch_code} (id {b.id})
+              </Text>
+            </Pressable>
           ))}
         </Card>
+
+        <Card>
+          <Subtitle>From / To location</Subtitle>
+          {locations.slice(0, 20).map((l) => (
+            <Text key={l.id} style={{ marginBottom: 4 }}>
+              #{l.id}: {l.label}{' '}
+              <Text style={{ color: colors.primary }} onPress={() => setFromId(l.id)}>
+                From
+              </Text>
+              {' · '}
+              <Text style={{ color: colors.success }} onPress={() => setToId(l.id)}>
+                To
+              </Text>
+            </Text>
+          ))}
+          <Muted>
+            From: {fromId ?? '—'} · To: {toId ?? '—'}
+          </Muted>
+        </Card>
+
+        <Input placeholder="Quantity" value={qty} onChangeText={setQty} keyboardType="numeric" />
         {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
         {msg ? <Text style={{ color: colors.success }}>{msg}</Text> : null}
         <Button
           label="Transfer"
+          loading={loading}
           onPress={async () => {
+            if (!batchId || !fromId || !toId) {
+              setError('Select batch, from, and to locations');
+              return;
+            }
+            setLoading(true);
             try {
               await warehouseApi.transfer({
-                batch_id: Number(batchId),
-                from_position_id: Number(fromId),
-                to_position_id: Number(toId),
+                batch_id: batchId,
+                from_position_id: fromId,
+                to_position_id: toId,
                 quantity: Number(qty),
                 reason: 'Mobile transfer',
               });
@@ -221,6 +370,9 @@ export function TransferScreen() {
               setError('');
             } catch (e) {
               setError(getErrorMessage(e));
+              setMsg('');
+            } finally {
+              setLoading(false);
             }
           }}
         />

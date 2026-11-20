@@ -2,6 +2,7 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsWarehouseStaff
 from withdrawals.serializers import (
     WithdrawalRequestSerializer,
     WithdrawalSerializer,
@@ -11,6 +12,8 @@ from withdrawals.models import Withdrawal
 
 
 class WithdrawalValidateView(APIView):
+    permission_classes = [IsWarehouseStaff]
+
     def post(self, request):
         data = validate_withdrawal(
             batch_id=request.data.get('batch_id'),
@@ -21,6 +24,7 @@ class WithdrawalValidateView(APIView):
 
 
 class WithdrawalListCreateView(generics.ListCreateAPIView):
+    permission_classes = [IsWarehouseStaff]
     queryset = Withdrawal.objects.select_related('user').prefetch_related(
         'lines__batch', 'lines__unit'
     )

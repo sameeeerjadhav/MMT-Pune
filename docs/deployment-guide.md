@@ -2,12 +2,29 @@
 
 Do **not** deploy without explicit approval.
 
+## Production checklist (before go-live)
+
+- [ ] `DJANGO_DEBUG=False`
+- [ ] Strong unique `DJANGO_SECRET_KEY` (not the example value)
+- [ ] `DJANGO_ALLOWED_HOSTS` set to the API hostname
+- [ ] CORS origins limited to trusted mobile/web clients
+- [ ] PostgreSQL listening on localhost only (or private network)
+- [ ] Demo users / `seed_demo` **not** run in production (or passwords rotated immediately)
+- [ ] HTTPS certificates installed and auto-renewing
+- [ ] Gunicorn systemd enabled; Nginx reverse proxy verified
+- [ ] Static files collected (`collectstatic`)
+- [ ] Automated `pg_dump` backups scheduled and restore tested
+- [ ] Mobile `app.json` `extra.apiUrl` points to `https://<api-host>/api`
+- [ ] Firewall: only 80/443 public; PostgreSQL not public
+
 ## 1. Server packages
 
 ```bash
 sudo apt update
 sudo apt install python3-venv python3-pip nginx postgresql postgresql-contrib
 ```
+
+Use Python 3.12+ for Django 6.x.
 
 ## 2. PostgreSQL
 
@@ -19,7 +36,7 @@ GRANT ALL PRIVILEGES ON DATABASE warehouse_inventory TO warehouse;
 \q
 ```
 
-Keep PostgreSQL bound to localhost.
+Keep PostgreSQL bound to localhost (`listen_addresses = 'localhost'`).
 
 ## 3. App user and code
 
@@ -41,6 +58,7 @@ Create `/home/warehouse/warehouse-inventory/backend/.env` from `.env.example`:
 - production `DJANGO_ALLOWED_HOSTS`
 - DB credentials
 - CORS origins for mobile/API consumers
+- `COMPANY_NAME` for barcode labels
 
 ## 5. Migrate and static
 
@@ -48,7 +66,7 @@ Create `/home/warehouse/warehouse-inventory/backend/.env` from `.env.example`:
 cd backend
 python manage.py migrate
 python manage.py collectstatic --noinput
-python manage.py seed_demo   # demo only — skip in production
+# Do NOT run seed_demo in production unless explicitly requested for a staging demo box
 ```
 
 ## 6. Gunicorn systemd
@@ -83,8 +101,14 @@ server {
     listen 80;
     server_name api.example.com;
 
+    client_max_body_size 20M;
+
     location /static/ {
         alias /home/warehouse/warehouse-inventory/backend/staticfiles/;
+    }
+
+    location /media/ {
+        alias /home/warehouse/warehouse-inventory/backend/media/;
     }
 
     location / {
@@ -103,28 +127,63 @@ sudo apt install certbot python3-certbot-nginx
 sudo certbot --nginx -d api.example.com
 ```
 
-## 9. Backups
+## 9. Backups and restore
+
+Daily backup example (cron as `warehouse` or root):
 
 ```bash
-pg_dump -U warehouse warehouse_inventory > backup_$(date +%F).sql
+mkdir -p /var/backups/warehouse
+pg_dump -U warehouse -h 127.0.0.1 warehouse_inventory | gzip > /var/backups/warehouse/backup_$(date +%F).sql.gz
 ```
 
 Restore:
 
 ```bash
-psql -U warehouse warehouse_inventory < backup_YYYY-MM-DD.sql
+gunzip -c /var/backups/warehouse/backup_YYYY-MM-DD.sql.gz | psql -U warehouse -h 127.0.0.1 warehouse_inventory
 ```
 
-## 10. Android APK
+Verify restore on a staging database before relying on backups in an incident.
+
+## 10. Android APK / EAS build
+
+1. Set API URL in [`mobile/app.json`](../mobile/app.json):
+
+```json
+"extra": {
+  "apiUrl": "https://api.example.com/api"
+}
+```
+
+2. Install EAS CLI and log in:
 
 ```bash
 cd mobile
-npx expo install
-# Set extra.apiUrl in app.json to https://api.example.com/api
-npx eas build -p android --profile preview
-# or locally after prebuild:
-npx expo prebuild
-cd android && ./gradlew assembleRelease
+npm install
+npx eas-cli@latest login
+npx eas-cli@latest build:configure
 ```
 
-APK output path depends on EAS vs local Gradle build.
+3. Build a preview APK:
+
+```bash
+npx eas-cli@latest build -p android --profile preview
+```
+
+4. Optional local release build (requires Android SDK):
+
+```bash
+npx expo prebuild
+cd android
+./gradlew assembleRelease
+```
+
+APK/AAB artifact location depends on EAS vs Gradle. Install only on devices that can reach the production API over HTTPS.
+
+## 11. Post-deploy smoke checks
+
+```bash
+curl -fsS https://api.example.com/api/health/
+curl -fsS https://api.example.com/api/docs/ | head
+```
+
+Then: login on Android → scan/manual lookup → validate FIFO on BATCH-002 style data (staging only).
