@@ -2,7 +2,7 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import IsSupervisorOrAdmin
+from accounts.permissions import IsSupervisorOrAdmin, IsWarehouseStaff
 from inventory.models import StockAllocation
 from inventory.serializers import StockAllocationSerializer
 from warehouses.models import Rack, RackPosition, Warehouse
@@ -91,6 +91,8 @@ class LocationListView(APIView):
 
 
 class AllocateView(APIView):
+    permission_classes = [IsWarehouseStaff]
+
     def post(self, request):
         allocation = allocate_stock(
             position_id=request.data['position_id'],
@@ -104,6 +106,8 @@ class AllocateView(APIView):
 
 
 class TransferView(APIView):
+    permission_classes = [IsWarehouseStaff]
+
     def post(self, request):
         transfer = transfer_stock(
             from_position_id=request.data['from_position_id'],

@@ -53,7 +53,15 @@ export default function UnitDetailScreen({ route, navigation }: any) {
           ))}
         </Card>
         {unit.status === 'AVAILABLE' ? (
-          <Button label="Withdraw this unit" onPress={() => navigation.navigate('Withdrawal', { unitId: unit.id })} />
+          <Button
+            label="Withdraw this unit"
+            onPress={() =>
+              navigation.navigate('Withdrawal', {
+                screen: 'WithdrawalMain',
+                params: { unitId: unit.id },
+              })
+            }
+          />
         ) : null}
       </ScrollView>
     </Screen>

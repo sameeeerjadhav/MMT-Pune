@@ -3,7 +3,12 @@ from django.urls import path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from accounts.views import HealthView, LoginView, LogoutView, ProfileView, RefreshView
-from barcodes.views import BarcodeDetailView, GenerateBarcodeView, PrintLogView
+from barcodes.views import (
+    BarcodeDetailView,
+    BarcodeLabelImageView,
+    GenerateBarcodeView,
+    PrintLogView,
+)
 from grn.views import GRNDetailView, GRNGenerateBarcodesView, GRNImportView, GRNListCreateView
 from inventory.views import (
     BatchDetailView,
@@ -51,6 +56,7 @@ urlpatterns = [
     path('api/inventory/scan/<str:barcode>/', ScanBarcodeView.as_view()),
     path('api/inventory/<str:inv_type>/<int:pk>/history/', InventoryHistoryView.as_view()),
     path('api/barcodes/generate/', GenerateBarcodeView.as_view()),
+    path('api/barcodes/<str:value>/label.png', BarcodeLabelImageView.as_view()),
     path('api/barcodes/<str:value>/', BarcodeDetailView.as_view()),
     path('api/barcodes/<str:value>/print-log/', PrintLogView.as_view()),
     path('api/warehouses/', WarehouseListCreateView.as_view()),
