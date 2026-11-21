@@ -1,16 +1,36 @@
 import re
 
+from django.db.models import Q
+from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsSupervisorOrAdmin, IsWarehouseStaff
+from config.exceptions import ApiError
 from inventory.models import StockAllocation
 from inventory.serializers import StockAllocationSerializer
 from warehouses.models import Rack, RackPosition, Warehouse
-from warehouses.serializers import RackSerializer, RackTransferSerializer, WarehouseSerializer
-from warehouses.services import allocate_stock, create_rack, transfer_stock
+from warehouses.serializers import (
+    RackCreateSerializer,
+    RackSerializer,
+    RackTransferSerializer,
+    WarehouseSerializer,
+)
+from warehouses.services import allocate_stock, create_rack, deallocate_stock, transfer_stock
+
+
+def _safe_delete(instance, label: str):
+    try:
+        instance.delete()
+    except ProtectedError:
+        raise ApiError(
+            'CONFLICT',
+            f'Cannot delete {label}: still referenced by stock allocations or history. '
+            'Deactivate it or clear related stock first.',
+            status_code=409,
+        )
 
 
 def _natural_key(value: str):
@@ -18,9 +38,28 @@ def _natural_key(value: str):
     return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', value or '')]
 
 
+def _is_lead(user) -> bool:
+    return bool(user and user.is_authenticated and user.has_role('ADMIN', 'SUPERVISOR'))
+
+
+def _include_inactive(request) -> bool:
+    flag = request.query_params.get('include_inactive', '').lower() in ('1', 'true', 'yes')
+    if not flag:
+        return False
+    return _is_lead(request.user)
+
+
 class WarehouseListCreateView(generics.ListCreateAPIView):
-    queryset = Warehouse.objects.all().order_by('code')
     serializer_class = WarehouseSerializer
+
+    def get_queryset(self):
+        qs = Warehouse.objects.all().order_by('code')
+        q = self.request.query_params.get('q', '').strip()
+        if q:
+            qs = qs.filter(Q(code__icontains=q) | Q(name__icontains=q) | Q(address__icontains=q))
+        if not _include_inactive(self.request):
+            qs = qs.filter(is_active=True)
+        return qs
 
     def get_permissions(self):
         if self.request.method == 'POST':
@@ -28,11 +67,48 @@ class WarehouseListCreateView(generics.ListCreateAPIView):
         return super().get_permissions()
 
 
+class WarehouseDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = WarehouseSerializer
+    http_method_names = ['get', 'patch', 'put', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        qs = Warehouse.objects.all()
+        # Employees cannot retrieve inactive warehouses by ID.
+        if self.request.method == 'GET' and not _is_lead(self.request.user):
+            qs = qs.filter(is_active=True)
+        return qs
+
+    def get_permissions(self):
+        if self.request.method in ('PATCH', 'PUT', 'DELETE'):
+            return [IsSupervisorOrAdmin()]
+        return super().get_permissions()
+
+    def perform_destroy(self, instance):
+        _safe_delete(instance, f'warehouse {instance.code}')
+
+
 class RackListCreateView(generics.ListCreateAPIView):
-    queryset = Rack.objects.select_related('warehouse', 'barcode').prefetch_related(
-        'shelves__positions'
-    )
     serializer_class = RackSerializer
+
+    def get_queryset(self):
+        qs = Rack.objects.select_related('warehouse', 'barcode').prefetch_related(
+            'shelves__positions'
+        ).order_by('warehouse__code', 'code')
+        q = self.request.query_params.get('q', '').strip()
+        warehouse_id = self.request.query_params.get('warehouse')
+        if warehouse_id:
+            qs = qs.filter(warehouse_id=warehouse_id)
+        if q:
+            qs = qs.filter(
+                Q(code__icontains=q)
+                | Q(name__icontains=q)
+                | Q(warehouse__code__icontains=q)
+                | Q(warehouse__name__icontains=q)
+                | Q(barcode__value__icontains=q)
+            )
+        if not _include_inactive(self.request):
+            qs = qs.filter(is_active=True, warehouse__is_active=True)
+        return qs
 
     def get_permissions(self):
         if self.request.method == 'POST':
@@ -40,20 +116,37 @@ class RackListCreateView(generics.ListCreateAPIView):
         return super().get_permissions()
 
     def create(self, request, *args, **kwargs):
+        ser = RackCreateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
         rack = create_rack(
-            warehouse_id=request.data['warehouse'],
-            code=request.data['code'],
-            name=request.data.get('name') or request.data['code'],
-            shelves=request.data.get('shelves'),
+            warehouse_id=data['warehouse'].id,
+            code=data['code'],
+            name=(data.get('name') or data['code']),
+            shelves=data.get('shelves'),
         )
         return Response(RackSerializer(rack).data, status=status.HTTP_201_CREATED)
 
 
-class RackDetailView(generics.RetrieveAPIView):
-    queryset = Rack.objects.select_related('warehouse', 'barcode').prefetch_related(
-        'shelves__positions'
-    )
+class RackDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = RackSerializer
+    http_method_names = ['get', 'patch', 'put', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        qs = Rack.objects.select_related('warehouse', 'barcode').prefetch_related(
+            'shelves__positions'
+        )
+        if self.request.method == 'GET' and not _is_lead(self.request.user):
+            qs = qs.filter(is_active=True, warehouse__is_active=True)
+        return qs
+
+    def get_permissions(self):
+        if self.request.method in ('PATCH', 'PUT', 'DELETE'):
+            return [IsSupervisorOrAdmin()]
+        return super().get_permissions()
+
+    def perform_destroy(self, instance):
+        _safe_delete(instance, f'rack {instance.code}')
 
 
 class RackInventoryView(APIView):
@@ -92,12 +185,12 @@ class RackMapView(APIView):
     """Visual layout: shelves as rows, positions as columns, with stock per cell."""
 
     def get(self, request, pk):
-        rack = get_object_or_404(
-            Rack.objects.select_related('warehouse', 'barcode').prefetch_related(
-                'shelves__positions'
-            ),
-            pk=pk,
+        qs = Rack.objects.select_related('warehouse', 'barcode').prefetch_related(
+            'shelves__positions'
         )
+        if not _is_lead(request.user):
+            qs = qs.filter(is_active=True, warehouse__is_active=True)
+        rack = get_object_or_404(qs, pk=pk)
         allocations = (
             StockAllocation.objects.filter(
                 is_active=True,
@@ -175,6 +268,7 @@ class RackMapView(APIView):
                     'warehouse_code': rack.warehouse.code,
                     'warehouse_name': rack.warehouse.name,
                     'barcode_value': rack.barcode.value if rack.barcode_id else None,
+                    'is_active': rack.is_active,
                 },
                 'summary': {
                     'shelves': len(rows),
@@ -189,7 +283,19 @@ class RackMapView(APIView):
 
 class LocationListView(APIView):
     def get(self, request):
-        positions = RackPosition.objects.select_related('shelf__rack__warehouse').all()
+        positions = RackPosition.objects.select_related('shelf__rack__warehouse').filter(
+            shelf__rack__is_active=True,
+            shelf__rack__warehouse__is_active=True,
+        )
+        q = request.query_params.get('q', '').strip()
+        if q:
+            positions = positions.filter(
+                Q(code__icontains=q)
+                | Q(shelf__code__icontains=q)
+                | Q(shelf__rack__code__icontains=q)
+                | Q(shelf__rack__warehouse__code__icontains=q)
+                | Q(shelf__rack__name__icontains=q)
+            )
         data = [
             {
                 'id': p.id,
@@ -199,7 +305,9 @@ class LocationListView(APIView):
                 'position': p.code,
                 'label': f'{p.shelf.rack.warehouse.code}/{p.shelf.rack.code}/{p.shelf.code}/{p.code}',
             }
-            for p in positions
+            for p in positions.order_by(
+                'shelf__rack__warehouse__code', 'shelf__rack__code', 'shelf__code', 'code'
+            )
         ]
         return Response(data)
 
@@ -208,8 +316,11 @@ class AllocateView(APIView):
     permission_classes = [IsWarehouseStaff]
 
     def post(self, request):
+        position_id = request.data.get('position_id')
+        if not position_id:
+            raise ApiError('VALIDATION_ERROR', 'position_id is required')
         allocation = allocate_stock(
-            position_id=request.data['position_id'],
+            position_id=position_id,
             user=request.user,
             batch_id=request.data.get('batch_id'),
             unit_id=request.data.get('unit_id'),
@@ -219,13 +330,32 @@ class AllocateView(APIView):
         return Response(StockAllocationSerializer(allocation).data, status=status.HTTP_201_CREATED)
 
 
+class DeallocateView(APIView):
+    permission_classes = [IsSupervisorOrAdmin]
+
+    def post(self, request):
+        allocation_id = request.data.get('allocation_id')
+        if not allocation_id:
+            raise ApiError('VALIDATION_ERROR', 'allocation_id is required')
+        alloc = deallocate_stock(
+            allocation_id=allocation_id,
+            user=request.user,
+            reason=request.data.get('reason', ''),
+        )
+        return Response(StockAllocationSerializer(alloc).data)
+
+
 class TransferView(APIView):
     permission_classes = [IsWarehouseStaff]
 
     def post(self, request):
+        from_position_id = request.data.get('from_position_id')
+        to_position_id = request.data.get('to_position_id')
+        if not from_position_id or not to_position_id:
+            raise ApiError('VALIDATION_ERROR', 'from_position_id and to_position_id are required')
         transfer = transfer_stock(
-            from_position_id=request.data['from_position_id'],
-            to_position_id=request.data['to_position_id'],
+            from_position_id=from_position_id,
+            to_position_id=to_position_id,
             user=request.user,
             batch_id=request.data.get('batch_id'),
             unit_id=request.data.get('unit_id'),

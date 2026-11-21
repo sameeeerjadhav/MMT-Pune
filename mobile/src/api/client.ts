@@ -53,7 +53,9 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && original && !original._retry) {
+    const url = String(original?.url || '');
+    const skipRefresh = url.includes('/auth/login/') || url.includes('/auth/refresh/');
+    if (error.response?.status === 401 && original && !original._retry && !skipRefresh) {
       original._retry = true;
       if (!refreshPromise) {
         refreshPromise = refreshAccessToken().finally(() => {
@@ -72,34 +74,55 @@ api.interceptors.response.use(
 
 export function getErrorMessage(error: unknown): string {
   const err = error as {
-    response?: { data?: { message?: string; detail?: string; details?: unknown; code?: string } };
+    response?: {
+      data?:
+        | string
+        | {
+            message?: string;
+            detail?: string | string[] | Record<string, unknown>;
+            details?: unknown;
+            code?: string;
+            non_field_errors?: string[];
+          };
+    };
     message?: string;
   };
   const data = err.response?.data;
-  if (data?.message) return data.message;
-  if (typeof data?.detail === 'string') return data.detail;
-
-  const details = data?.details;
-  if (typeof details === 'string') return details;
-  if (Array.isArray(details)) return details.map(String).join('; ');
-  if (details && typeof details === 'object') {
-    const parts = Object.entries(details as Record<string, unknown>).map(([key, value]) => {
-      if (Array.isArray(value)) return `${key}: ${value.join(', ')}`;
-      if (value && typeof value === 'object') return `${key}: ${JSON.stringify(value)}`;
-      return `${key}: ${String(value)}`;
-    });
-    if (parts.length) return parts.join('; ');
+  if (typeof data === 'string' && data.trim()) {
+    // Avoid dumping HTML error pages
+    if (data.trim().startsWith('<')) return 'Request failed';
+    return data.length > 180 ? `${data.slice(0, 180)}…` : data;
   }
+  if (data && typeof data === 'object') {
+    if (data.message) return data.message;
+    if (Array.isArray(data.non_field_errors) && data.non_field_errors.length) {
+      return data.non_field_errors.join('; ');
+    }
+    if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.detail)) return data.detail.map(String).join('; ');
 
-  // Plain DRF field-error shape: { field: ["msg"] }
-  if (data && typeof data === 'object' && !('message' in data) && !('code' in data)) {
-    const parts = Object.entries(data as Record<string, unknown>)
-      .filter(([k]) => k !== 'detail')
-      .map(([key, value]) => {
+    const details = data.details;
+    if (typeof details === 'string') return details;
+    if (Array.isArray(details)) return details.map(String).join('; ');
+    if (details && typeof details === 'object') {
+      const parts = Object.entries(details as Record<string, unknown>).map(([key, value]) => {
         if (Array.isArray(value)) return `${key}: ${value.join(', ')}`;
+        if (value && typeof value === 'object') return `${key}: ${JSON.stringify(value)}`;
         return `${key}: ${String(value)}`;
       });
-    if (parts.length) return parts.join('; ');
+      if (parts.length) return parts.join('; ');
+    }
+
+    // Plain DRF field-error shape: { field: ["msg"] }
+    if (!('message' in data) && !('code' in data)) {
+      const parts = Object.entries(data as Record<string, unknown>)
+        .filter(([k]) => k !== 'detail')
+        .map(([key, value]) => {
+          if (Array.isArray(value)) return `${key}: ${value.join(', ')}`;
+          return `${key}: ${String(value)}`;
+        });
+      if (parts.length) return parts.join('; ');
+    }
   }
 
   return err.message || 'Something went wrong';

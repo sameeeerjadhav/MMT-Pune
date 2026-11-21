@@ -167,6 +167,165 @@ export function Input({
   );
 }
 
+/** Search field with an X clear control that restores the full list. */
+export function SearchInput({
+  label,
+  value,
+  onChangeText,
+  onClear,
+  onSubmitEditing,
+  placeholder,
+  ...props
+}: Omit<React.ComponentProps<typeof TextInput>, 'value' | 'onChangeText'> & {
+  label?: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  /** Called after value is cleared — reload all records here. */
+  onClear?: () => void;
+}) {
+  const clear = () => {
+    onChangeText('');
+    onClear?.();
+  };
+
+  return (
+    <View style={{ marginBottom: spacing.sm }}>
+      {label ? <FieldLabel>{label}</FieldLabel> : null}
+      <View style={styles.searchWrap}>
+        <TextInput
+          {...props}
+          value={value}
+          onChangeText={onChangeText}
+          onSubmitEditing={onSubmitEditing}
+          placeholder={placeholder}
+          placeholderTextColor={colors.muted}
+          returnKeyType={props.returnKeyType ?? 'search'}
+          style={[styles.input, styles.searchInput, props.style]}
+        />
+        {value ? (
+          <Pressable
+            onPress={clear}
+            accessibilityLabel="Clear search"
+            hitSlop={10}
+            style={({ pressed }) => [styles.searchClear, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <View style={styles.searchClearBtn}>
+              <Text style={styles.searchClearX}>×</Text>
+            </View>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+/** Red indicator for deactivated master-data rows. */
+export function InactiveDot({ active = true, size = 8 }: { active?: boolean; size?: number }) {
+  if (active !== false) return null;
+  return (
+    <View
+      accessibilityLabel="Deactivated"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: colors.danger,
+        marginRight: 6,
+      }}
+    />
+  );
+}
+
+/** Compact text action for dense admin list rows. */
+export function TextAction({
+  label,
+  onPress,
+  tone = 'default',
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  tone?: 'default' | 'danger' | 'muted';
+  disabled?: boolean;
+}) {
+  const color =
+    tone === 'danger' ? colors.danger : tone === 'muted' ? colors.muted : colors.primaryDark;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      hitSlop={8}
+      style={({ pressed }) => ({ opacity: disabled ? 0.4 : pressed ? 0.65 : 1, paddingVertical: 2 })}
+    >
+      <Text style={{ color, fontWeight: '700', fontSize: 13, letterSpacing: 0.1 }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/**
+ * Professional manage toolbar for master-data rows:
+ * Edit · Deactivate · Delete
+ */
+export function ManageActionBar({
+  onEdit,
+  onToggleActive,
+  onDelete,
+  isActive = true,
+  disabled,
+}: {
+  onEdit: () => void;
+  onToggleActive: () => void;
+  onDelete: () => void;
+  isActive?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <View style={styles.manageBar}>
+      <TextAction label="Edit" onPress={onEdit} disabled={disabled} />
+      <Text style={styles.manageSep}>·</Text>
+      <TextAction
+        label={isActive ? 'Deactivate' : 'Activate'}
+        onPress={onToggleActive}
+        tone="muted"
+        disabled={disabled}
+      />
+      <Text style={styles.manageSep}>·</Text>
+      <TextAction label="Delete" onPress={onDelete} tone="danger" disabled={disabled} />
+    </View>
+  );
+}
+
+/** Primary + secondary form footer (Save / Cancel). */
+export function FormActions({
+  primaryLabel,
+  onPrimary,
+  onCancel,
+  loading,
+  secondary,
+}: {
+  primaryLabel: string;
+  onPrimary: () => void;
+  onCancel?: () => void;
+  loading?: boolean;
+  secondary?: React.ReactNode;
+}) {
+  return (
+    <View style={{ marginTop: spacing.xs }}>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        {onCancel ? (
+          <View style={{ flex: 1 }}>
+            <Button label="Cancel" variant="secondary" onPress={onCancel} disabled={loading} />
+          </View>
+        ) : null}
+        <View style={{ flex: 1 }}>
+          <Button label={primaryLabel} onPress={onPrimary} loading={loading} />
+        </View>
+      </View>
+      {secondary}
+    </View>
+  );
+}
+
 export function Badge({
   label,
   tone = 'primary',
@@ -331,11 +490,57 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
   },
+  searchWrap: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  searchInput: {
+    marginBottom: 0,
+    paddingRight: 44,
+  },
+  searchClear: {
+    position: 'absolute',
+    right: 10,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchClearBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchClearX: {
+    color: colors.navy,
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 20,
+    marginTop: -1,
+  },
   badge: {
     alignSelf: 'flex-start',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: radius.pill,
+  },
+  manageBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderSoft,
+  },
+  manageSep: {
+    color: colors.border,
+    fontSize: 13,
+    fontWeight: '600',
   },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: spacing.lg },
   fifo: {

@@ -1,18 +1,29 @@
 from django.db.models import Prefetch, Q, Sum
+from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsSupervisorOrAdmin
 from barcodes.models import Barcode
 from config.exceptions import ApiError
-from inventory.models import InventoryBatch, InventoryTransaction, InventoryUnit, Item, StockAllocation
+from inventory.models import (
+    Category,
+    InventoryBatch,
+    InventoryTransaction,
+    InventoryUnit,
+    Item,
+    StockAllocation,
+)
 from inventory.serializers import (
+    CategorySerializer,
     InventoryBatchSerializer,
     InventoryTransactionSerializer,
     InventoryUnitSerializer,
     ItemSerializer,
+    TestingStatusSerializer,
 )
 from inventory.services.fifo import check_fifo_batch, check_fifo_unit
 from warehouses.models import Rack
@@ -69,7 +80,96 @@ class InventoryListView(APIView):
         return Response({'batches': batches, 'units': units})
 
 
+def _is_lead(user) -> bool:
+    return bool(user and user.is_authenticated and user.has_role('ADMIN', 'SUPERVISOR'))
+
+
+def _include_inactive_items(request) -> bool:
+    flag = request.query_params.get('include_inactive', '').lower() in ('1', 'true', 'yes')
+    if not flag:
+        return False
+    return _is_lead(request.user)
+
+
+class CategoryListView(APIView):
+    def get(self, request):
+        qs = Category.objects.all().order_by('code')
+        q = request.query_params.get('q', '').strip()
+        if q:
+            qs = qs.filter(Q(code__icontains=q) | Q(name__icontains=q))
+        return Response(CategorySerializer(qs, many=True).data)
+
+
+class ItemListCreateView(generics.ListCreateAPIView):
+    serializer_class = ItemSerializer
+
+    def get_queryset(self):
+        qs = Item.objects.select_related('category').order_by('item_code')
+        q = self.request.query_params.get('q', '').strip()
+        if q:
+            qs = qs.filter(
+                Q(item_code__icontains=q)
+                | Q(name__icontains=q)
+                | Q(category__name__icontains=q)
+                | Q(category__code__icontains=q)
+            )
+        if not _include_inactive_items(self.request):
+            qs = qs.filter(is_active=True)
+        return qs
+
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsSupervisorOrAdmin()]
+        return super().get_permissions()
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx['request'] = self.request
+        return ctx
+
+
+class ItemDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = ItemSerializer
+    http_method_names = ['get', 'patch', 'put', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        qs = Item.objects.select_related('category')
+        # Employees cannot retrieve inactive items by ID.
+        if self.request.method == 'GET' and not _is_lead(self.request.user):
+            qs = qs.filter(is_active=True)
+        return qs
+
+    def get_permissions(self):
+        if self.request.method in ('PATCH', 'PUT', 'DELETE'):
+            return [IsSupervisorOrAdmin()]
+        return super().get_permissions()
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx['request'] = self.request
+        return ctx
+
+    def perform_destroy(self, instance):
+        if instance.batches.exists() or instance.units.exists():
+            raise ApiError(
+                'CONFLICT',
+                f'Cannot delete item {instance.item_code}: it has batches or units. '
+                'Deactivate it instead.',
+                status_code=409,
+            )
+        try:
+            instance.delete()
+        except ProtectedError:
+            raise ApiError(
+                'CONFLICT',
+                f'Cannot delete item {instance.item_code}: still referenced elsewhere. '
+                'Deactivate it instead.',
+                status_code=409,
+            )
+
+
 class ItemImageUploadView(APIView):
+    permission_classes = [IsSupervisorOrAdmin]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, pk):
@@ -94,12 +194,47 @@ class BatchDetailView(generics.RetrieveAPIView):
     ).prefetch_related('allocations__position__shelf__rack__warehouse')
     serializer_class = InventoryBatchSerializer
 
+    def get_permissions(self):
+        if self.request.method == 'PATCH':
+            return [IsSupervisorOrAdmin()]
+        return super().get_permissions()
+
+    def patch(self, request, *args, **kwargs):
+        batch = self.get_object()
+        ser = TestingStatusSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        batch.testing_status = ser.validated_data['testing_status']
+        batch.save(update_fields=['testing_status', 'updated_at'])
+        return Response(InventoryBatchSerializer(batch, context={'request': request}).data)
+
 
 class UnitDetailView(generics.RetrieveAPIView):
     queryset = InventoryUnit.objects.select_related(
         'item', 'item__category', 'barcode', 'grn_line__grn__vendor'
     ).prefetch_related('allocations__position__shelf__rack__warehouse')
     serializer_class = InventoryUnitSerializer
+
+    def get_permissions(self):
+        if self.request.method == 'PATCH':
+            return [IsSupervisorOrAdmin()]
+        return super().get_permissions()
+
+    def patch(self, request, *args, **kwargs):
+        unit = self.get_object()
+        ser = TestingStatusSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        unit.testing_status = ser.validated_data['testing_status']
+        update_fields = ['testing_status', 'updated_at']
+        # Keep operational status aligned with QA outcome when still in warehouse.
+        if unit.status in ('AVAILABLE', 'FAILED'):
+            if unit.testing_status == 'FAILED':
+                unit.status = 'FAILED'
+                update_fields.append('status')
+            elif unit.status == 'FAILED' and unit.testing_status in ('PASSED', 'PENDING'):
+                unit.status = 'AVAILABLE'
+                update_fields.append('status')
+        unit.save(update_fields=update_fields)
+        return Response(InventoryUnitSerializer(unit, context={'request': request}).data)
 
 
 class InventoryHistoryView(APIView):
@@ -151,6 +286,10 @@ class ScanBarcodeView(APIView):
             rack = Rack.objects.select_related('warehouse', 'barcode').prefetch_related(
                 'shelves__positions'
             ).get(barcode=bc)
+            if (not rack.is_active or not rack.warehouse.is_active) and not _is_lead(
+                request.user
+            ):
+                raise ApiError('NOT_FOUND', 'Rack not found', status_code=404)
             return Response({'type': 'RACK', 'barcode': bc.value, 'rack': {
                 'id': rack.id,
                 'code': rack.code,
@@ -185,7 +324,9 @@ class DashboardView(APIView):
                     {
                         'item': batch.item.name,
                         'newer': batch.batch_code,
+                        'newer_id': batch.id,
                         'older': older.batch_code,
+                        'older_id': older.id,
                         'older_available': str(older.available_qty),
                     }
                 )

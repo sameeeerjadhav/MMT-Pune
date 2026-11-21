@@ -3,6 +3,7 @@ import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { warehouseApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { RackIcon } from '../components/icons';
 import {
   Badge,
@@ -17,6 +18,7 @@ import {
 } from '../components/ui';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors, radius } from '../theme/tokens';
+import { canAccess } from '../utils/roles';
 
 type Cell = {
   position_id: number;
@@ -39,6 +41,8 @@ function naturalCompare(a: string, b: string) {
 
 export default function RackMapScreen({ route, navigation }: any) {
   const id = route?.params?.id;
+  const { user } = useAuth();
+  const canManage = canAccess(user?.role, 'manageMasterData');
   const scrollPad = useTabScrollPadding(28);
   const loadSeq = useRef(0);
   const [map, setMap] = useState<any>(null);
@@ -46,6 +50,8 @@ export default function RackMapScreen({ route, navigation }: any) {
   const [selectedStockId, setSelectedStockId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [actionMsg, setActionMsg] = useState('');
+  const [deallocating, setDeallocating] = useState(false);
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
@@ -319,6 +325,34 @@ export default function RackMapScreen({ route, navigation }: any) {
                 />
               </View>
             </View>
+            {canManage && selectedStock?.allocation_id ? (
+              <View style={{ marginTop: 8 }}>
+                <Button
+                  label="Deallocate selected stock"
+                  variant="ghost"
+                  loading={deallocating}
+                  onPress={async () => {
+                    setDeallocating(true);
+                    setActionMsg('');
+                    setError('');
+                    try {
+                      await warehouseApi.deallocate({
+                        allocation_id: selectedStock.allocation_id,
+                        reason: 'Mobile deallocate',
+                      });
+                      setActionMsg('Stock removed from this cell');
+                      setSelectedStockId(null);
+                      await load();
+                    } catch (e) {
+                      setError(getErrorMessage(e));
+                    } finally {
+                      setDeallocating(false);
+                    }
+                  }}
+                />
+              </View>
+            ) : null}
+            {actionMsg ? <Muted>{actionMsg}</Muted> : null}
           </Card>
         ) : (
           <Card>

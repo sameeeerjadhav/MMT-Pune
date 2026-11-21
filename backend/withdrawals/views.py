@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.http import HttpResponse
 from rest_framework import generics, status
 from rest_framework.response import Response
@@ -27,10 +28,27 @@ class WithdrawalValidateView(APIView):
 
 class WithdrawalListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsWarehouseStaff]
-    queryset = Withdrawal.objects.select_related('user', 'user__role').prefetch_related(
-        'lines__batch__item', 'lines__unit__item'
-    )
     serializer_class = WithdrawalSerializer
+
+    def get_queryset(self):
+        qs = Withdrawal.objects.select_related('user', 'user__role').prefetch_related(
+            'lines__batch__item', 'lines__unit__item'
+        ).order_by('-created_at')
+        q = self.request.query_params.get('q', '').strip()
+        if q:
+            qs = qs.filter(
+                Q(purpose__icontains=q)
+                | Q(reference__icontains=q)
+                | Q(notes__icontains=q)
+                | Q(user__username__icontains=q)
+                | Q(user__first_name__icontains=q)
+                | Q(user__last_name__icontains=q)
+                | Q(lines__batch__batch_code__icontains=q)
+                | Q(lines__unit__unit_code__icontains=q)
+                | Q(lines__batch__item__name__icontains=q)
+                | Q(lines__unit__item__name__icontains=q)
+            ).distinct()
+        return qs
 
     def create(self, request, *args, **kwargs):
         serializer = WithdrawalRequestSerializer(data=request.data)
