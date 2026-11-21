@@ -31,6 +31,11 @@ from reports.views import (
 )
 from warehouses.views import (
     AllocateView,
+    FloorDetailView,
+    FloorLayoutView,
+    FloorListCreateView,
+    FloorMapView,
+    FloorPlaceRackView,
     LocationListView,
     RackDetailView,
     RackInventoryView,
@@ -39,6 +44,7 @@ from warehouses.views import (
     TransferView,
     WarehouseListCreateView,
 )
+
 from withdrawals.views import (
     WithdrawalDetailView,
     WithdrawalListCreateView,
@@ -71,6 +77,11 @@ urlpatterns = [
     path('api/barcodes/<str:value>/', BarcodeDetailView.as_view()),
     path('api/barcodes/<str:value>/print-log/', PrintLogView.as_view()),
     path('api/warehouses/', WarehouseListCreateView.as_view()),
+    path('api/floors/', FloorListCreateView.as_view()),
+    path('api/floors/<int:pk>/', FloorDetailView.as_view()),
+    path('api/floors/<int:pk>/map/', FloorMapView.as_view()),
+    path('api/floors/<int:pk>/layout/', FloorLayoutView.as_view()),
+    path('api/floors/<int:pk>/place-rack/', FloorPlaceRackView.as_view()),
     path('api/racks/', RackListCreateView.as_view()),
     path('api/racks/<int:pk>/', RackDetailView.as_view()),
     path('api/racks/<int:pk>/inventory/', RackInventoryView.as_view()),

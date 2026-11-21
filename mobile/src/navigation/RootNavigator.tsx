@@ -25,6 +25,7 @@ import {
   WarehouseListScreen,
 } from '../screens/WarehouseScreens';
 import RackMapScreen from '../screens/RackMapScreen';
+import FloorMapScreen from '../screens/FloorMapScreen';
 import WithdrawalScreen from '../screens/WithdrawalScreen';
 import WithdrawalConfirmScreen from '../screens/WithdrawalConfirmScreen';
 import ReportsScreen from '../screens/ReportsScreen';
@@ -67,7 +68,8 @@ function GRNStack() {
 function WarehouseStack() {
   return (
     <Stack.Navigator screenOptions={stackScreenOptions}>
-      <Stack.Screen name="WarehouseList" component={WarehouseListScreen} options={{ title: 'Racks' }} />
+      <Stack.Screen name="WarehouseList" component={WarehouseListScreen} options={{ title: 'Floors' }} />
+      <Stack.Screen name="FloorMap" component={FloorMapScreen} options={{ title: 'Floor map' }} />
       <Stack.Screen name="RackMap" component={RackMapScreen} options={{ title: 'Rack map' }} />
       <Stack.Screen name="RackDetail" component={RackDetailScreen} options={{ title: 'Rack' }} />
       <Stack.Screen name="Allocate" component={AllocateScreen} options={{ title: 'Allocate' }} />
@@ -99,7 +101,7 @@ const TAB_DEFS: TabDef[] = [
   { name: 'Inventory', title: 'Stock', component: InventoryStack, isStack: true },
   { name: 'Withdrawal', title: 'Out', component: WithdrawalStack, isStack: true },
   { name: 'GRN', title: 'GRN', component: GRNStack, isStack: true },
-  { name: 'Warehouse', title: 'Racks', component: WarehouseStack, isStack: true },
+  { name: 'Warehouse', title: 'Floors', component: WarehouseStack, isStack: true },
   { name: 'Reports', title: 'Reports', component: ReportsScreen },
   { name: 'Settings', title: 'Settings', component: SettingsScreen },
   { name: 'More', title: 'More', component: MoreScreen },
