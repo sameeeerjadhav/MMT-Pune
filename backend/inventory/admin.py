@@ -25,9 +25,22 @@ class VendorAdmin(admin.ModelAdmin):
 
 @admin.register(Item)
 class ItemAdmin(admin.ModelAdmin):
-    list_display = ('item_code', 'name', 'category', 'inventory_type', 'uom', 'is_active')
+    list_display = ('item_code', 'name', 'category', 'inventory_type', 'uom', 'has_image', 'is_active')
     list_filter = ('inventory_type', 'category')
     search_fields = ('item_code', 'name')
+    readonly_fields = ('image_preview',)
+
+    @admin.display(boolean=True, description='Image')
+    def has_image(self, obj):
+        return bool(obj.image)
+
+    @admin.display(description='Preview')
+    def image_preview(self, obj):
+        if not obj.image:
+            return '—'
+        from django.utils.html import format_html
+
+        return format_html('<img src="{}" style="max-height:120px;" />', obj.image.url)
 
 
 @admin.register(InventoryBatch)

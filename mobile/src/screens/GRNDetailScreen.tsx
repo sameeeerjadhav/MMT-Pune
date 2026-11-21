@@ -3,13 +3,13 @@ import { ScrollView, Text } from 'react-native';
 import { grnApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle, Title } from '../components/ui';
+import { Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle } from '../components/ui';
 import { canAccess } from '../utils/roles';
 
-export default function GRNDetailScreen({ route }: any) {
+export default function GRNDetailScreen({ route, navigation }: any) {
   const { user } = useAuth();
   const canGenerate = canAccess(user?.role, 'grnImport');
-  const { id } = route.params;
+  const id = route?.params?.id;
   const [grn, setGrn] = useState<any>(null);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -30,16 +30,20 @@ export default function GRNDetailScreen({ route }: any) {
   };
 
   useEffect(() => {
-    load();
+    if (id) load();
   }, [id]);
 
+  useEffect(() => {
+    if (grn?.grn_number) navigation.setOptions({ title: grn.grn_number });
+  }, [grn?.grn_number, navigation]);
+
+  if (!id) return <ErrorState message="Missing GRN id" />;
   if (loading) return <LoadingState />;
   if (error || !grn) return <ErrorState message={error || 'Not found'} onRetry={load} />;
 
   return (
     <Screen>
       <ScrollView>
-        <Title>{grn.grn_number}</Title>
         <Muted>
           {grn.external_system} {grn.external_ref || ''} | {String(grn.received_date).slice(0, 10)}
         </Muted>

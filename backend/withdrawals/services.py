@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import F
 
 from audit.models import AuditLog
 from config.exceptions import ApiError
@@ -66,11 +67,18 @@ def validate_withdrawal(*, batch_id=None, unit_id=None, quantity=None):
     """Read-only validation — no ledger writes and no row locks."""
     if batch_id:
         try:
-            batch = InventoryBatch.objects.get(pk=batch_id)
+            batch = InventoryBatch.objects.select_related('item').get(pk=batch_id)
         except InventoryBatch.DoesNotExist:
             raise ApiError('NOT_FOUND', 'Batch not found', status_code=404)
         if batch.testing_status == 'FAILED':
             raise ApiError('INELIGIBLE', 'Cannot withdraw failed inventory')
+        if batch.available_qty <= 0:
+            raise ApiError(
+                'ALREADY_WITHDRAWN',
+                'This batch has no remaining quantity — it cannot be withdrawn again',
+                details={'available': '0', 'withdrawn_qty': str(batch.withdrawn_qty)},
+                status_code=409,
+            )
         qty = Decimal(str(quantity or 0))
         if qty <= 0:
             raise ApiError('INVALID_QTY', 'Quantity must be positive')
@@ -85,16 +93,26 @@ def validate_withdrawal(*, batch_id=None, unit_id=None, quantity=None):
             'type': 'BATCH',
             'batch_id': batch.id,
             'batch_code': batch.batch_code,
+            'item_name': batch.item.name if batch.item_id else None,
             'available_qty': str(batch.available_qty),
+            'withdrawn_qty': str(batch.withdrawn_qty),
+            'can_withdraw': True,
             'location': _active_location(batch),
             'fifo': fifo,
         }
 
     if unit_id:
         try:
-            unit = InventoryUnit.objects.get(pk=unit_id)
+            unit = InventoryUnit.objects.select_related('item').get(pk=unit_id)
         except InventoryUnit.DoesNotExist:
             raise ApiError('NOT_FOUND', 'Unit not found', status_code=404)
+        if unit.status == 'WITHDRAWN':
+            raise ApiError(
+                'ALREADY_WITHDRAWN',
+                'This unit was already withdrawn and cannot be withdrawn again',
+                details={'unit_code': unit.unit_code, 'status': unit.status},
+                status_code=409,
+            )
         if unit.status != 'AVAILABLE':
             raise ApiError('INELIGIBLE', f'Unit status is {unit.status}')
         if unit.testing_status == 'FAILED':
@@ -104,6 +122,9 @@ def validate_withdrawal(*, batch_id=None, unit_id=None, quantity=None):
             'type': 'UNIT',
             'unit_id': unit.id,
             'unit_code': unit.unit_code,
+            'item_name': unit.item.name if unit.item_id else None,
+            'status': unit.status,
+            'can_withdraw': True,
             'location': _active_location(unit),
             'fifo': fifo,
         }
@@ -127,9 +148,15 @@ def create_withdrawal(
         raise ApiError('VALIDATION_ERROR', 'Provide exactly one of batch_id or unit_id')
 
     if batch_id:
-        batch = InventoryBatch.objects.select_for_update().get(pk=batch_id)
+        batch = InventoryBatch.objects.select_for_update().select_related('item').get(pk=batch_id)
         if batch.testing_status == 'FAILED':
             raise ApiError('INELIGIBLE', 'Cannot withdraw failed inventory')
+        if batch.available_qty <= 0:
+            raise ApiError(
+                'ALREADY_WITHDRAWN',
+                'This batch has no remaining quantity — it cannot be withdrawn again',
+                status_code=409,
+            )
         qty = Decimal(str(quantity or 0))
         if qty <= 0:
             raise ApiError('INVALID_QTY', 'Quantity must be positive')
@@ -140,11 +167,17 @@ def create_withdrawal(
         overridden = assert_fifo_or_override(result=fifo, user=user, override_reason=override_reason)
         previous = _active_location(batch)
 
-        batch.available_qty -= qty
-        batch.withdrawn_qty += qty
-        if batch.available_qty < 0:
-            raise ApiError('NEGATIVE_STOCK', 'Negative stock prevented')
-        batch.save(update_fields=['available_qty', 'withdrawn_qty', 'updated_at'])
+        updated = InventoryBatch.objects.filter(pk=batch.id, available_qty__gte=qty).update(
+            available_qty=F('available_qty') - qty,
+            withdrawn_qty=F('withdrawn_qty') + qty,
+        )
+        if updated != 1:
+            raise ApiError(
+                'ALREADY_WITHDRAWN',
+                'Stock changed or was already withdrawn — refresh and try again',
+                status_code=409,
+            )
+        batch.refresh_from_db()
         _reduce_batch_allocations(batch, qty)
 
         withdrawal = Withdrawal.objects.create(
@@ -180,7 +213,13 @@ def create_withdrawal(
             )
         return withdrawal
 
-    unit = InventoryUnit.objects.select_for_update().get(pk=unit_id)
+    unit = InventoryUnit.objects.select_for_update().select_related('item').get(pk=unit_id)
+    if unit.status == 'WITHDRAWN':
+        raise ApiError(
+            'ALREADY_WITHDRAWN',
+            'This unit was already withdrawn and cannot be withdrawn again',
+            status_code=409,
+        )
     if unit.status != 'AVAILABLE':
         raise ApiError('INELIGIBLE', f'Unit status is {unit.status}')
     if unit.testing_status == 'FAILED':
@@ -192,7 +231,11 @@ def create_withdrawal(
 
     updated = InventoryUnit.objects.filter(pk=unit.id, status='AVAILABLE').update(status='WITHDRAWN')
     if updated != 1:
-        raise ApiError('CONCURRENT_UPDATE', 'Unit already withdrawn', status_code=409)
+        raise ApiError(
+            'ALREADY_WITHDRAWN',
+            'This unit was already withdrawn and cannot be withdrawn again',
+            status_code=409,
+        )
     _deactivate_unit_allocations(unit)
 
     withdrawal = Withdrawal.objects.create(

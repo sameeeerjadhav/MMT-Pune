@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -5,6 +6,7 @@ from accounts.permissions import IsSupervisorOrAdmin
 from grn.models import GRN
 from inventory.models import InventoryBatch, InventoryUnit, StockAllocation
 from inventory.services.fifo import find_older_bulk
+from reports.pdf import build_withdrawals_report_pdf
 from withdrawals.models import Withdrawal
 
 
@@ -42,13 +44,61 @@ class WithdrawalReportView(APIView):
     permission_classes = [IsSupervisorOrAdmin]
 
     def get(self, request):
-        return Response(
-            list(
-                Withdrawal.objects.select_related('user').values(
-                    'id', 'purpose', 'reference', 'created_at', 'user__username'
-                )
-            )
+        rows = []
+        qs = (
+            Withdrawal.objects.select_related('user', 'user__role')
+            .prefetch_related('lines__batch__item', 'lines__unit__item')
+            .order_by('-created_at')
         )
+        for w in qs:
+            lines = []
+            for line in w.lines.all():
+                lines.append(
+                    {
+                        'batch_code': line.batch.batch_code if line.batch_id else None,
+                        'unit_code': line.unit.unit_code if line.unit_id else None,
+                        'item_name': (
+                            line.batch.item.name
+                            if line.batch_id and line.batch.item_id
+                            else line.unit.item.name
+                            if line.unit_id and line.unit.item_id
+                            else None
+                        ),
+                        'quantity': str(line.quantity),
+                        'fifo_override': line.fifo_override,
+                        'previous_location': line.previous_location,
+                    }
+                )
+            rows.append(
+                {
+                    'id': w.id,
+                    'purpose': w.purpose,
+                    'reference': w.reference,
+                    'notes': w.notes,
+                    'created_at': w.created_at,
+                    'user__username': w.user.username,
+                    'user_name': w.user.get_full_name() or w.user.username,
+                    'user_role': getattr(w.user, 'role_code', ''),
+                    'user_employee_id': w.user.employee_id,
+                    'lines': lines,
+                }
+            )
+        return Response(rows)
+
+
+class WithdrawalReportPdfView(APIView):
+    permission_classes = [IsSupervisorOrAdmin]
+
+    def get(self, request):
+        qs = (
+            Withdrawal.objects.select_related('user', 'user__role')
+            .prefetch_related('lines__batch__item', 'lines__unit__item')
+            .order_by('-created_at')
+        )
+        pdf = build_withdrawals_report_pdf(qs)
+        response = HttpResponse(pdf, content_type='application/pdf')
+        response['Content-Disposition'] = 'attachment; filename="withdrawal-report.pdf"'
+        return response
 
 
 class RackOccupancyReportView(APIView):

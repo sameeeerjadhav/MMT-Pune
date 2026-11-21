@@ -11,9 +11,14 @@ load_dotenv(BASE_DIR / '.env')
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'insecure-dev-key')
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes')
 ALLOWED_HOSTS = [h.strip() for h in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
+# Phone/LAN IP changes often during Expo Go — allow any host while debugging.
+if DEBUG and '*' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('*')
 
 if not DEBUG and SECRET_KEY == 'insecure-dev-key':
     raise ImproperlyConfigured('DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is False')
+if not DEBUG and '*' in ALLOWED_HOSTS:
+    raise ImproperlyConfigured('DJANGO_ALLOWED_HOSTS must not include * when DJANGO_DEBUG is False')
 
 INSTALLED_APPS = [
     'django.contrib.admin',

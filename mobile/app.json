@@ -17,7 +17,11 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "permissions": ["CAMERA"],
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -30,7 +34,14 @@
         {
           "cameraPermission": "Allow Warehouse Inventory to scan barcodes."
         }
-      ]
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Warehouse Inventory to attach item photos."
+        }
+      ],
+      "expo-sharing"
     ],
     "extra": {
       "apiUrl": ""

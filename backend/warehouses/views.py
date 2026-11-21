@@ -1,3 +1,6 @@
+import re
+
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -8,6 +11,11 @@ from inventory.serializers import StockAllocationSerializer
 from warehouses.models import Rack, RackPosition, Warehouse
 from warehouses.serializers import RackSerializer, RackTransferSerializer, WarehouseSerializer
 from warehouses.services import allocate_stock, create_rack, transfer_stock
+
+
+def _natural_key(value: str):
+    """Sort key so '2' comes before '10'."""
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', value or '')]
 
 
 class WarehouseListCreateView(generics.ListCreateAPIView):
@@ -69,8 +77,114 @@ class RackInventoryView(APIView):
             row['item_name'] = (
                 a.batch.item.name if a.batch_id else a.unit.item.name if a.unit_id else None
             )
+            row['item_code'] = (
+                a.batch.item.item_code
+                if a.batch_id
+                else a.unit.item.item_code
+                if a.unit_id
+                else None
+            )
             data.append(row)
         return Response(data)
+
+
+class RackMapView(APIView):
+    """Visual layout: shelves as rows, positions as columns, with stock per cell."""
+
+    def get(self, request, pk):
+        rack = get_object_or_404(
+            Rack.objects.select_related('warehouse', 'barcode').prefetch_related(
+                'shelves__positions'
+            ),
+            pk=pk,
+        )
+        allocations = (
+            StockAllocation.objects.filter(
+                is_active=True,
+                allocation_type='ACTUAL',
+                position__shelf__rack_id=pk,
+            )
+            .select_related('batch__item', 'unit__item', 'position')
+            .order_by('id')
+        )
+        by_position: dict[int, list] = {}
+        for a in allocations:
+            by_position.setdefault(a.position_id, []).append(
+                {
+                    'allocation_id': a.id,
+                    'batch_id': a.batch_id,
+                    'unit_id': a.unit_id,
+                    'batch_code': a.batch.batch_code if a.batch_id else None,
+                    'unit_code': a.unit.unit_code if a.unit_id else None,
+                    'item_name': (
+                        a.batch.item.name
+                        if a.batch_id
+                        else a.unit.item.name
+                        if a.unit_id
+                        else None
+                    ),
+                    'item_code': (
+                        a.batch.item.item_code
+                        if a.batch_id
+                        else a.unit.item.item_code
+                        if a.unit_id
+                        else None
+                    ),
+                    'quantity': str(a.quantity) if a.quantity is not None else None,
+                }
+            )
+
+        rows = []
+        total_cells = 0
+        occupied_cells = 0
+        shelves = sorted(rack.shelves.all(), key=lambda s: _natural_key(s.code))
+        for shelf in shelves:
+            cells = []
+            positions = sorted(shelf.positions.all(), key=lambda p: _natural_key(p.code))
+            for pos in positions:
+                stock = by_position.get(pos.id, [])
+                total_cells += 1
+                if stock:
+                    occupied_cells += 1
+                cells.append(
+                    {
+                        'position_id': pos.id,
+                        'position_code': pos.code,
+                        'position_name': pos.name,
+                        'occupied': bool(stock),
+                        'stock_count': len(stock),
+                        'stock': stock,
+                    }
+                )
+            rows.append(
+                {
+                    'shelf_id': shelf.id,
+                    'shelf_code': shelf.code,
+                    'shelf_name': shelf.name or shelf.code,
+                    'cells': cells,
+                }
+            )
+
+        return Response(
+            {
+                'rack': {
+                    'id': rack.id,
+                    'code': rack.code,
+                    'name': rack.name,
+                    'warehouse_id': rack.warehouse_id,
+                    'warehouse_code': rack.warehouse.code,
+                    'warehouse_name': rack.warehouse.name,
+                    'barcode_value': rack.barcode.value if rack.barcode_id else None,
+                },
+                'summary': {
+                    'shelves': len(rows),
+                    'cells': total_cells,
+                    'occupied': occupied_cells,
+                    'empty': total_cells - occupied_cells,
+                },
+                'rows': rows,
+            }
+        )
 
 
 class LocationListView(APIView):

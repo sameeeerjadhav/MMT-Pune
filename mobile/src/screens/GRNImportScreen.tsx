@@ -3,7 +3,7 @@ import { ScrollView, Text } from 'react-native';
 import { grnApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Button, Card, Input, Screen, Title, Muted } from '../components/ui';
+import { Button, Card, Input, Screen, Muted } from '../components/ui';
 import { colors } from '../theme/tokens';
 import { canAccess } from '../utils/roles';
 
@@ -38,7 +38,6 @@ export default function GRNImportScreen({ navigation }: any) {
   if (!canAccess(user?.role, 'grnImport')) {
     return (
       <Screen>
-        <Title>Import GRN</Title>
         <Muted>GRN import is limited to supervisors and admins.</Muted>
         <Button label="Go back" variant="secondary" onPress={() => navigation.goBack()} />
       </Screen>
@@ -64,7 +63,6 @@ export default function GRNImportScreen({ navigation }: any) {
   return (
     <Screen>
       <ScrollView>
-        <Title>Import GRN</Title>
         <Muted>Mock integration for M1/Workroom demo. Duplicate external refs are rejected.</Muted>
         <Card>
           <Input
