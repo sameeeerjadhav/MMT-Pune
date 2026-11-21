@@ -1,15 +1,18 @@
 from django.db.models import Prefetch, Q, Sum
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from barcodes.models import Barcode
 from config.exceptions import ApiError
-from inventory.models import InventoryBatch, InventoryTransaction, InventoryUnit, StockAllocation
+from inventory.models import InventoryBatch, InventoryTransaction, InventoryUnit, Item, StockAllocation
 from inventory.serializers import (
     InventoryBatchSerializer,
     InventoryTransactionSerializer,
     InventoryUnitSerializer,
+    ItemSerializer,
 )
 from inventory.services.fifo import check_fifo_batch, check_fifo_unit
 from warehouses.models import Rack
@@ -52,9 +55,37 @@ class InventoryListView(APIView):
                 | Q(item__item_code__icontains=q)
                 | Q(barcode__value__icontains=q)
             )
-        batches = [] if inv_type == 'UNIT' else InventoryBatchSerializer(batch_qs.order_by('received_at'), many=True).data
-        units = [] if inv_type == 'BULK' else InventoryUnitSerializer(unit_qs.order_by('received_at'), many=True).data
+        ctx = {'request': request}
+        batches = (
+            []
+            if inv_type == 'UNIT'
+            else InventoryBatchSerializer(batch_qs.order_by('received_at'), many=True, context=ctx).data
+        )
+        units = (
+            []
+            if inv_type == 'BULK'
+            else InventoryUnitSerializer(unit_qs.order_by('received_at'), many=True, context=ctx).data
+        )
         return Response({'batches': batches, 'units': units})
+
+
+class ItemImageUploadView(APIView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, pk):
+        item = get_object_or_404(Item, pk=pk)
+        image = request.FILES.get('image')
+        if not image:
+            raise ApiError('VALIDATION_ERROR', 'image file is required')
+        content_type = getattr(image, 'content_type', '') or ''
+        if content_type and not content_type.startswith('image/'):
+            raise ApiError('VALIDATION_ERROR', 'Only image uploads are allowed')
+        # Replace previous image if present
+        if item.image:
+            item.image.delete(save=False)
+        item.image = image
+        item.save(update_fields=['image', 'updated_at'])
+        return Response(ItemSerializer(item, context={'request': request}).data)
 
 
 class BatchDetailView(generics.RetrieveAPIView):
@@ -99,7 +130,7 @@ class ScanBarcodeView(APIView):
                 {
                     'type': 'BATCH',
                     'barcode': bc.value,
-                    'batch': InventoryBatchSerializer(batch).data,
+                    'batch': InventoryBatchSerializer(batch, context={'request': request}).data,
                     'fifo': fifo,
                 }
             )
@@ -112,7 +143,7 @@ class ScanBarcodeView(APIView):
                 {
                     'type': 'UNIT',
                     'barcode': bc.value,
-                    'unit': InventoryUnitSerializer(unit).data,
+                    'unit': InventoryUnitSerializer(unit, context={'request': request}).data,
                     'fifo': fifo,
                 }
             )

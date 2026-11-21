@@ -51,7 +51,7 @@ export function roleLabel(role: RoleCode | undefined | null): string {
 export function roleBlurb(role: RoleCode | undefined | null): string {
   switch (role) {
     case 'ADMIN':
-      return 'Full control: inventory, GRN import, warehouses, reports, and FIFO overrides.';
+      return 'Full control: inventory, rack maps, GRN import, reports, and FIFO overrides.';
     case 'SUPERVISOR':
       return 'Floor lead: operations, GRN import, rack setup, reports, and FIFO overrides.';
     case 'WAREHOUSE_EMPLOYEE':
@@ -81,16 +81,18 @@ export function canAccessTab(role: RoleCode | undefined | null, tabName: string)
   return canAccess(role, module);
 }
 
-/** Primary bottom tabs — max 5, role-specific so each login feels different. */
+/** Primary bottom tabs — max 5, role-specific. Scanner is always the center tab. */
 export function primaryTabsForRole(role: RoleCode | undefined | null): string[] {
+  // Pattern: [left, left, Scanner, right, More]
   if (role === 'ADMIN') {
-    return ['Dashboard', 'Inventory', 'GRN', 'Reports', 'More'];
+    // Racks tab = visual shelf/position map + stock management
+    return ['Dashboard', 'Inventory', 'Scanner', 'Warehouse', 'More'];
   }
   if (role === 'SUPERVISOR') {
-    return ['Dashboard', 'Scanner', 'GRN', 'Warehouse', 'More'];
+    return ['Dashboard', 'GRN', 'Scanner', 'Warehouse', 'More'];
   }
   // Employee default
-  return ['Dashboard', 'Scanner', 'Withdrawal', 'Inventory', 'More'];
+  return ['Dashboard', 'Withdrawal', 'Scanner', 'Inventory', 'More'];
 }
 
 export type MoreLink = {
@@ -119,8 +121,8 @@ export function moreLinksForRole(role: RoleCode | undefined | null): MoreLink[] 
     },
     {
       key: 'warehouse',
-      title: 'Warehouses & racks',
-      subtitle: 'Allocate and transfer stock locations',
+      title: 'Racks map',
+      subtitle: 'Visual rows/columns and stock allocate / transfer',
       tab: 'Warehouse',
       module: 'warehouse',
     },

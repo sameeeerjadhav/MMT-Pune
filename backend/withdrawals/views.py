@@ -1,8 +1,10 @@
+from django.http import HttpResponse
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsWarehouseStaff
+from reports.pdf import build_withdrawal_receipt_pdf
 from withdrawals.serializers import (
     WithdrawalRequestSerializer,
     WithdrawalSerializer,
@@ -25,8 +27,8 @@ class WithdrawalValidateView(APIView):
 
 class WithdrawalListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsWarehouseStaff]
-    queryset = Withdrawal.objects.select_related('user').prefetch_related(
-        'lines__batch', 'lines__unit'
+    queryset = Withdrawal.objects.select_related('user', 'user__role').prefetch_related(
+        'lines__batch__item', 'lines__unit__item'
     )
     serializer_class = WithdrawalSerializer
 
@@ -44,14 +46,31 @@ class WithdrawalListCreateView(generics.ListCreateAPIView):
             notes=data.get('notes', ''),
             override_reason=data.get('override_reason', ''),
         )
-        return Response(
-            WithdrawalSerializer(Withdrawal.objects.get(pk=withdrawal.pk)).data,
-            status=status.HTTP_201_CREATED,
+        detail = (
+            Withdrawal.objects.select_related('user', 'user__role')
+            .prefetch_related('lines__batch__item', 'lines__unit__item')
+            .get(pk=withdrawal.pk)
         )
+        return Response(WithdrawalSerializer(detail).data, status=status.HTTP_201_CREATED)
 
 
 class WithdrawalDetailView(generics.RetrieveAPIView):
-    queryset = Withdrawal.objects.select_related('user').prefetch_related(
-        'lines__batch', 'lines__unit', 'transactions'
+    queryset = Withdrawal.objects.select_related('user', 'user__role').prefetch_related(
+        'lines__batch__item', 'lines__unit__item', 'transactions'
     )
     serializer_class = WithdrawalSerializer
+
+
+class WithdrawalPdfView(APIView):
+    permission_classes = [IsWarehouseStaff]
+
+    def get(self, request, pk):
+        withdrawal = (
+            Withdrawal.objects.select_related('user', 'user__role')
+            .prefetch_related('lines__batch__item', 'lines__unit__item')
+            .get(pk=pk)
+        )
+        pdf = build_withdrawal_receipt_pdf(withdrawal)
+        response = HttpResponse(pdf, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="withdrawal-{pk}.pdf"'
+        return response

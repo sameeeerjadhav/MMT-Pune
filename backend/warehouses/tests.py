@@ -179,3 +179,81 @@ class ConcurrentWithdrawParallelTests(TransactionTestCase):
         self.assertTrue(any(s >= 400 for s in statuses))
         self.batch.refresh_from_db()
         self.assertEqual(self.batch.available_qty, Decimal('3'))
+
+
+class RackMapViewTests(TestCase):
+    def setUp(self):
+        role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})
+        self.user = User.objects.create_user(username='map_admin', password='pass12345', role=role)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+        cat = Category.objects.create(code='MAP', name='Map Cat')
+        vendor = Vendor.objects.create(code='MAPV', name='Map Vendor')
+        item = Item.objects.create(
+            item_code='MAP-BOLT', name='Map Bolt', category=cat, inventory_type='BULK'
+        )
+        grn = GRN.objects.create(
+            grn_number='G-MAP', vendor=vendor, received_date=timezone.now(), external_system='MANUAL'
+        )
+        line = GRNLine.objects.create(
+            grn=grn,
+            item=item,
+            received_qty=50,
+            uom='EA',
+            testing_status='PASSED',
+            classification='BULK',
+        )
+        self.batch = InventoryBatch.objects.create(
+            batch_code='MAP-BATCH',
+            item=item,
+            grn_line=line,
+            received_qty=50,
+            available_qty=50,
+            testing_status='PASSED',
+            received_at=timezone.now(),
+        )
+
+        self.wh = Warehouse.objects.create(code='WH-MAP', name='Map WH')
+        self.rack = Rack.objects.create(warehouse=self.wh, code='R-MAP', name='Rack Map')
+        # Create out of natural order to verify sorting (2 before 10).
+        shelf_b = Shelf.objects.create(rack=self.rack, code='10')
+        shelf_a = Shelf.objects.create(rack=self.rack, code='2')
+        self.pos_empty = RackPosition.objects.create(shelf=shelf_a, code='10')
+        self.pos_stock = RackPosition.objects.create(shelf=shelf_a, code='2')
+        RackPosition.objects.create(shelf=shelf_b, code='1')
+
+        StockAllocation.objects.create(
+            allocation_type='ACTUAL',
+            batch=self.batch,
+            position=self.pos_stock,
+            quantity=Decimal('12'),
+            is_active=True,
+        )
+
+    def test_map_returns_rows_cells_and_occupancy(self):
+        res = self.client.get(f'/api/racks/{self.rack.id}/map/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['rack']['code'], 'R-MAP')
+        self.assertEqual(res.data['summary']['shelves'], 2)
+        self.assertEqual(res.data['summary']['cells'], 3)
+        self.assertEqual(res.data['summary']['occupied'], 1)
+        self.assertEqual(res.data['summary']['empty'], 2)
+
+        # Natural order: shelf "2" then "10"
+        shelf_codes = [row['shelf_code'] for row in res.data['rows']]
+        self.assertEqual(shelf_codes, ['2', '10'])
+
+        first_row = res.data['rows'][0]
+        pos_codes = [c['position_code'] for c in first_row['cells']]
+        self.assertEqual(pos_codes, ['2', '10'])
+
+        occupied = next(c for c in first_row['cells'] if c['position_id'] == self.pos_stock.id)
+        self.assertTrue(occupied['occupied'])
+        self.assertEqual(occupied['stock_count'], 1)
+        self.assertEqual(occupied['stock'][0]['batch_code'], 'MAP-BATCH')
+        self.assertEqual(Decimal(occupied['stock'][0]['quantity']), Decimal('12'))
+
+    def test_map_missing_rack_returns_404(self):
+        res = self.client.get('/api/racks/999999/map/')
+        self.assertEqual(res.status_code, 404)

@@ -31,7 +31,12 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
-        self.stdout.write('Seeding demo data...')
+        from django.conf import settings
+
+        db = settings.DATABASES['default']
+        self.stdout.write(
+            f"Seeding demo data... (db={db.get('ENGINE')} name={db.get('NAME')} host={db.get('HOST') or 'n/a'})"
+        )
 
         roles = {}
         for code, name in [
@@ -216,31 +221,58 @@ class Command(BaseCommand):
                     )
 
         # Partial bulk withdrawal from BATCH-001 (older) — shipment
+        # Must reduce rack allocations too (available_qty alone leaves map/allocate inconsistent).
+        from withdrawals.services import create_withdrawal
+
         batch_001 = InventoryBatch.objects.filter(batch_code='BATCH-001').first()
         if batch_001 and batch_001.withdrawn_qty == 0:
-            qty = Decimal('20')
-            prev = {'warehouse': 'WH-MAIN', 'rack': 'R-01', 'shelf': 'A', 'position': '01'}
-            batch_001.available_qty -= qty
-            batch_001.withdrawn_qty += qty
-            batch_001.save()
-            w = Withdrawal.objects.create(purpose='SHIPMENT', reference='SHP-DEMO-1', user=employee, notes='Demo partial withdraw')
-            WithdrawalLine.objects.create(withdrawal=w, batch=batch_001, quantity=qty, fifo_ok=True, previous_location=prev)
-            InventoryTransaction.objects.create(
-                type='WITHDRAW', batch=batch_001, quantity=qty, purpose='SHIPMENT', withdrawal=w, user=employee
+            create_withdrawal(
+                user=employee,
+                purpose='SHIPMENT',
+                batch_id=batch_001.id,
+                quantity=Decimal('20'),
+                reference='SHP-DEMO-1',
+                notes='Demo partial withdraw',
             )
 
         # Individual unit withdrawal — assembly
         unit = InventoryUnit.objects.filter(status='AVAILABLE', item__item_code='MOT-ASM').first()
         if unit:
-            unit.status = 'WITHDRAWN'
-            unit.save(update_fields=['status'])
-            w = Withdrawal.objects.create(purpose='ASSEMBLY', reference='ASM-DEMO-1', user=employee)
-            WithdrawalLine.objects.create(
-                withdrawal=w, unit=unit, quantity=Decimal('1'), fifo_ok=True, previous_location={}
+            create_withdrawal(
+                user=employee,
+                purpose='ASSEMBLY',
+                unit_id=unit.id,
+                reference='ASM-DEMO-1',
             )
-            InventoryTransaction.objects.create(
-                type='WITHDRAW', unit=unit, quantity=Decimal('1'), purpose='ASSEMBLY', withdrawal=w, user=employee
+
+        # Repair any legacy seed mismatch: active ACTUAL qty should not exceed available_qty.
+        for batch in InventoryBatch.objects.all():
+            allocs = list(
+                StockAllocation.objects.filter(
+                    batch=batch, allocation_type='ACTUAL', is_active=True
+                ).order_by('id')
             )
+            if not allocs:
+                continue
+            total = sum((a.quantity or Decimal('0')) for a in allocs)
+            target = batch.available_qty or Decimal('0')
+            if total <= target:
+                continue
+            excess = total - target
+            for alloc in reversed(allocs):
+                if excess <= 0:
+                    break
+                current = alloc.quantity or Decimal('0')
+                take = min(current, excess)
+                new_qty = current - take
+                excess -= take
+                if new_qty <= 0:
+                    alloc.is_active = False
+                    alloc.quantity = Decimal('0')
+                    alloc.save(update_fields=['is_active', 'quantity', 'updated_at'])
+                else:
+                    alloc.quantity = new_qty
+                    alloc.save(update_fields=['quantity', 'updated_at'])
 
         # Sample rack transfer
         batch_seal = InventoryBatch.objects.filter(batch_code='BATCH-SEAL-01').first()
