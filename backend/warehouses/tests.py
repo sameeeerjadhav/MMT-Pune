@@ -259,6 +259,224 @@ class RackMapViewTests(TestCase):
         self.assertEqual(res.status_code, 404)
 
 
+class MasterDataCrudAndSearchTests(TestCase):
+    def setUp(self):
+        admin_role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})
+        employee_role, _ = Role.objects.get_or_create(
+            code='WAREHOUSE_EMPLOYEE', defaults={'name': 'Warehouse Employee'}
+        )
+        self.admin = User.objects.create_user(username='md_admin', password='pass12345', role=admin_role)
+        self.employee = User.objects.create_user(
+            username='md_emp', password='pass12345', role=employee_role
+        )
+        self.client = APIClient()
+        self.wh = Warehouse.objects.create(code='WH-MD', name='Master Data WH')
+        self.rack = Rack.objects.create(warehouse=self.wh, code='R-MD', name='Rack MD')
+        shelf = Shelf.objects.create(rack=self.rack, code='A')
+        self.pos = RackPosition.objects.create(shelf=shelf, code='01')
+        cat = Category.objects.create(code='MD', name='MD Cat')
+        vendor = Vendor.objects.create(code='MDV', name='MD Vendor')
+        self.item = Item.objects.create(
+            item_code='MD-BOLT', name='MD Bolt', category=cat, inventory_type='BULK'
+        )
+        grn = GRN.objects.create(
+            grn_number='G-MD', vendor=vendor, received_date=timezone.now(), external_system='MANUAL'
+        )
+        line = GRNLine.objects.create(
+            grn=grn,
+            item=self.item,
+            received_qty=40,
+            uom='EA',
+            testing_status='PASSED',
+            classification='BULK',
+        )
+        self.batch = InventoryBatch.objects.create(
+            batch_code='MD-BATCH',
+            item=self.item,
+            grn_line=line,
+            received_qty=40,
+            available_qty=40,
+            testing_status='PENDING',
+            received_at=timezone.now(),
+        )
+        self.alloc = StockAllocation.objects.create(
+            allocation_type='ACTUAL',
+            batch=self.batch,
+            position=self.pos,
+            quantity=Decimal('40'),
+            is_active=True,
+        )
+
+    def test_employee_cannot_patch_warehouse_or_deallocate(self):
+        self.client.force_authenticate(user=self.employee)
+        wh = self.client.patch(
+            f'/api/warehouses/{self.wh.id}/', {'name': 'Hacked'}, format='json'
+        )
+        self.assertEqual(wh.status_code, 403)
+        de = self.client.post(
+            '/api/locations/deallocate/',
+            {'allocation_id': self.alloc.id},
+            format='json',
+        )
+        self.assertEqual(de.status_code, 403)
+
+    def test_admin_can_update_warehouse_rack_item_and_testing(self):
+        self.client.force_authenticate(user=self.admin)
+        wh = self.client.patch(
+            f'/api/warehouses/{self.wh.id}/',
+            {'name': 'Updated WH', 'is_active': True},
+            format='json',
+        )
+        self.assertEqual(wh.status_code, 200)
+        self.assertEqual(wh.data['name'], 'Updated WH')
+
+        rack = self.client.patch(
+            f'/api/racks/{self.rack.id}/', {'name': 'Updated Rack'}, format='json'
+        )
+        self.assertEqual(rack.status_code, 200)
+        self.assertEqual(rack.data['name'], 'Updated Rack')
+
+        item = self.client.post(
+            '/api/inventory/items/',
+            {
+                'item_code': 'MD-NEW',
+                'name': 'New Item',
+                'inventory_type': 'BULK',
+                'uom': 'EA',
+                'category_code_input': 'MD-NEW-CAT',
+            },
+            format='json',
+        )
+        self.assertEqual(item.status_code, 201)
+        self.assertEqual(item.data['item_code'], 'MD-NEW')
+
+        ts = self.client.patch(
+            f'/api/inventory/batches/{self.batch.id}/',
+            {'testing_status': 'PASSED'},
+            format='json',
+        )
+        self.assertEqual(ts.status_code, 200)
+        self.assertEqual(ts.data['testing_status'], 'PASSED')
+
+    def test_admin_deallocate_clears_active_allocation(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.post(
+            '/api/locations/deallocate/',
+            {'allocation_id': self.alloc.id, 'reason': 'Correction'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.alloc.refresh_from_db()
+        self.assertFalse(self.alloc.is_active)
+        map_res = self.client.get(f'/api/racks/{self.rack.id}/map/')
+        cell = map_res.data['rows'][0]['cells'][0]
+        self.assertFalse(cell['occupied'])
+
+    def test_search_racks_and_locations(self):
+        self.client.force_authenticate(user=self.employee)
+        racks = self.client.get('/api/racks/', {'q': 'R-MD'})
+        self.assertEqual(racks.status_code, 200)
+        self.assertTrue(any(r['code'] == 'R-MD' for r in racks.data))
+
+        locs = self.client.get('/api/locations/', {'q': 'WH-MD'})
+        self.assertEqual(locs.status_code, 200)
+        self.assertTrue(any(l['warehouse'] == 'WH-MD' for l in locs.data))
+
+    def test_inactive_warehouse_hidden_unless_flag(self):
+        self.wh.is_active = False
+        self.wh.save(update_fields=['is_active'])
+        self.client.force_authenticate(user=self.employee)
+        hidden = self.client.get('/api/warehouses/')
+        self.assertFalse(any(w['id'] == self.wh.id for w in hidden.data))
+
+        self.client.force_authenticate(user=self.admin)
+        shown = self.client.get('/api/warehouses/', {'include_inactive': '1'})
+        self.assertTrue(any(w['id'] == self.wh.id for w in shown.data))
+
+    def test_employee_cannot_delete_master_data(self):
+        self.client.force_authenticate(user=self.employee)
+        self.assertEqual(self.client.delete(f'/api/warehouses/{self.wh.id}/').status_code, 403)
+        self.assertEqual(self.client.delete(f'/api/racks/{self.rack.id}/').status_code, 403)
+        self.assertEqual(self.client.delete(f'/api/inventory/items/{self.item.id}/').status_code, 403)
+
+    def test_admin_can_delete_unused_item_and_blocked_when_stocked(self):
+        self.client.force_authenticate(user=self.admin)
+        # Item with batches cannot be hard-deleted
+        blocked = self.client.delete(f'/api/inventory/items/{self.item.id}/')
+        self.assertEqual(blocked.status_code, 409)
+
+        created = self.client.post(
+            '/api/inventory/items/',
+            {
+                'item_code': 'MD-DEL',
+                'name': 'Disposable',
+                'inventory_type': 'BULK',
+                'uom': 'EA',
+                'category_code_input': 'MD-DEL-CAT',
+            },
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201)
+        deleted = self.client.delete(f'/api/inventory/items/{created.data["id"]}/')
+        self.assertEqual(deleted.status_code, 204)
+
+    def test_employee_cannot_patch_testing_or_upload_image(self):
+        self.client.force_authenticate(user=self.employee)
+        ts = self.client.patch(
+            f'/api/inventory/batches/{self.batch.id}/',
+            {'testing_status': 'PASSED'},
+            format='json',
+        )
+        self.assertEqual(ts.status_code, 403)
+
+        img = self.client.post(
+            f'/api/inventory/items/{self.item.id}/image/',
+            {},
+            format='multipart',
+        )
+        self.assertEqual(img.status_code, 403)
+
+    def test_employee_cannot_get_inactive_master_detail(self):
+        self.wh.is_active = False
+        self.wh.save(update_fields=['is_active'])
+        self.rack.is_active = False
+        self.rack.save(update_fields=['is_active'])
+        self.item.is_active = False
+        self.item.save(update_fields=['is_active'])
+
+        self.client.force_authenticate(user=self.employee)
+        self.assertEqual(self.client.get(f'/api/warehouses/{self.wh.id}/').status_code, 404)
+        self.assertEqual(self.client.get(f'/api/racks/{self.rack.id}/').status_code, 404)
+        self.assertEqual(self.client.get(f'/api/inventory/items/{self.item.id}/').status_code, 404)
+
+        self.client.force_authenticate(user=self.admin)
+        self.assertEqual(self.client.get(f'/api/warehouses/{self.wh.id}/').status_code, 200)
+        self.assertEqual(self.client.get(f'/api/racks/{self.rack.id}/').status_code, 200)
+        self.assertEqual(self.client.get(f'/api/inventory/items/{self.item.id}/').status_code, 200)
+
+    def test_allocate_rejected_on_inactive_rack(self):
+        self.rack.is_active = False
+        self.rack.save(update_fields=['is_active'])
+        self.client.force_authenticate(user=self.employee)
+        res = self.client.post(
+            '/api/locations/allocate/',
+            {
+                'batch_id': self.batch.id,
+                'position_id': self.pos.id,
+                'quantity': '1',
+                'allocation_type': 'ACTUAL',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.data.get('code'), 'INACTIVE_LOCATION')
+
+    def test_rack_create_requires_warehouse_and_code(self):
+        self.client.force_authenticate(user=self.admin)
+        missing = self.client.post('/api/racks/', {'name': 'No code'}, format='json')
+        self.assertEqual(missing.status_code, 400)
+
+
 class FloorMapViewTests(TestCase):
     def setUp(self):
         admin_role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})

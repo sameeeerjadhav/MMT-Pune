@@ -177,11 +177,23 @@ export default function DashboardScreen() {
         <Card>
           {(data?.fifo_alerts || []).length === 0 ? <Muted>No FIFO conflicts right now</Muted> : null}
           {(data?.fifo_alerts || []).map((a: any, idx: number) => (
-            <Pressable key={idx} style={{ marginBottom: idx === (data?.fifo_alerts?.length || 1) - 1 ? 0 : 12 }}>
+            <Pressable
+              key={`${a.older_id || a.older}-${a.newer_id || a.newer}-${idx}`}
+              onPress={() => {
+                if (a.older_id) {
+                  navigation.navigate('Inventory', {
+                    screen: 'BatchDetail',
+                    params: { id: a.older_id },
+                  });
+                }
+              }}
+              style={{ marginBottom: idx === (data?.fifo_alerts?.length || 1) - 1 ? 0 : 12 }}
+            >
               <Badge label="FIFO" tone="warning" />
               <Text style={{ marginTop: 6, color: colors.text, lineHeight: 20 }}>
                 {a.item}: withdraw {a.older} before {a.newer} (avail {a.older_available})
               </Text>
+              {a.older_id ? <Muted>Tap to open older batch</Muted> : null}
             </Pressable>
           ))}
         </Card>
@@ -190,9 +202,20 @@ export default function DashboardScreen() {
         <Card>
           {(data?.recent_withdrawals || []).length === 0 ? <Muted>No recent withdrawals</Muted> : null}
           {(data?.recent_withdrawals || []).map((w: any) => (
-            <Text key={w.id} style={{ marginBottom: 8, color: colors.text }}>
-              #{w.id} · {w.purpose} — {w.user}
-            </Text>
+            <Pressable
+              key={w.id}
+              onPress={() =>
+                navigation.navigate('Withdrawal', {
+                  screen: 'WithdrawalConfirm',
+                  params: { id: w.id },
+                })
+              }
+              style={{ marginBottom: 8 }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '600' }}>
+                #{w.id} · {w.purpose} — {w.user}
+              </Text>
+            </Pressable>
           ))}
         </Card>
       </ScrollView>

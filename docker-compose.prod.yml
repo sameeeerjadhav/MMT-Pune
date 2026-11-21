@@ -1,0 +1,58 @@
+# Production stack for Dokploy / VPS
+# Domain example: mmt.labxco.cloud → API at https://mmt.labxco.cloud/api/
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-warehouse_inventory}
+      POSTGRES_USER: ${DB_USER:-warehouse}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+    volumes:
+      - warehouse_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - dokploy-network
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-mmt.labxco.cloud}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-https://mmt.labxco.cloud}
+      DJANGO_CORS_ALLOWED_ORIGINS: ${DJANGO_CORS_ALLOWED_ORIGINS:-}
+      DB_NAME: ${DB_NAME:-warehouse_inventory}
+      DB_USER: ${DB_USER:-warehouse}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+      DB_HOST: db
+      DB_PORT: "5432"
+      COMPANY_NAME: ${COMPANY_NAME:-Airport Equipment Manufacturing}
+    volumes:
+      - warehouse_media:/app/media
+      - warehouse_static:/app/staticfiles
+    # Dokploy Traefik will publish this; expose for local test if needed
+    ports:
+      - "8000:8000"
+    networks:
+      - dokploy-network
+
+volumes:
+  warehouse_pg_data:
+  warehouse_media:
+  warehouse_static:
+
+networks:
+  dokploy-network:
+    external: true

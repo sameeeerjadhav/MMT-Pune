@@ -14,10 +14,13 @@ from barcodes.views import (
 from grn.views import GRNDetailView, GRNGenerateBarcodesView, GRNImportView, GRNListCreateView
 from inventory.views import (
     BatchDetailView,
+    CategoryListView,
     DashboardView,
     InventoryHistoryView,
     InventoryListView,
+    ItemDetailView,
     ItemImageUploadView,
+    ItemListCreateView,
     ScanBarcodeView,
     UnitDetailView,
 )
@@ -31,6 +34,7 @@ from reports.views import (
 )
 from warehouses.views import (
     AllocateView,
+    DeallocateView,
     FloorDetailView,
     FloorLayoutView,
     FloorListCreateView,
@@ -42,9 +46,9 @@ from warehouses.views import (
     RackListCreateView,
     RackMapView,
     TransferView,
+    WarehouseDetailView,
     WarehouseListCreateView,
 )
-
 from withdrawals.views import (
     WithdrawalDetailView,
     WithdrawalListCreateView,
@@ -67,6 +71,9 @@ urlpatterns = [
     path('api/grns/<int:pk>/', GRNDetailView.as_view()),
     path('api/grns/<int:pk>/generate-barcodes/', GRNGenerateBarcodesView.as_view()),
     path('api/inventory/', InventoryListView.as_view()),
+    path('api/inventory/categories/', CategoryListView.as_view()),
+    path('api/inventory/items/', ItemListCreateView.as_view()),
+    path('api/inventory/items/<int:pk>/', ItemDetailView.as_view()),
     path('api/inventory/batches/<int:pk>/', BatchDetailView.as_view()),
     path('api/inventory/units/<int:pk>/', UnitDetailView.as_view()),
     path('api/inventory/items/<int:pk>/image/', ItemImageUploadView.as_view()),
@@ -77,6 +84,7 @@ urlpatterns = [
     path('api/barcodes/<str:value>/', BarcodeDetailView.as_view()),
     path('api/barcodes/<str:value>/print-log/', PrintLogView.as_view()),
     path('api/warehouses/', WarehouseListCreateView.as_view()),
+    path('api/warehouses/<int:pk>/', WarehouseDetailView.as_view()),
     path('api/floors/', FloorListCreateView.as_view()),
     path('api/floors/<int:pk>/', FloorDetailView.as_view()),
     path('api/floors/<int:pk>/map/', FloorMapView.as_view()),
@@ -88,6 +96,7 @@ urlpatterns = [
     path('api/racks/<int:pk>/map/', RackMapView.as_view()),
     path('api/locations/', LocationListView.as_view()),
     path('api/locations/allocate/', AllocateView.as_view()),
+    path('api/locations/deallocate/', DeallocateView.as_view()),
     path('api/locations/transfer/', TransferView.as_view()),
     path('api/withdrawals/validate/', WithdrawalValidateView.as_view()),
     path('api/withdrawals/', WithdrawalListCreateView.as_view()),

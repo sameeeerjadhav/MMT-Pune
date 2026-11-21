@@ -27,10 +27,11 @@ def _location_from_obj(obj):
 
 
 def find_older_bulk(item_id: int, received_at, exclude_id: int, *, for_update=False):
+    # Only PASSED older stock blocks FIFO — PENDING is not releasable yet.
     qs = InventoryBatch.objects.filter(
         item_id=item_id,
         available_qty__gt=0,
-        testing_status__in=['PASSED', 'PENDING'],
+        testing_status='PASSED',
     ).exclude(id=exclude_id).filter(
         Q(received_at__lt=received_at) | Q(received_at=received_at, id__lt=exclude_id)
     ).order_by('received_at', 'id')
@@ -43,7 +44,7 @@ def find_older_unit(item_id: int, received_at, exclude_id: int, *, for_update=Fa
     qs = InventoryUnit.objects.filter(
         item_id=item_id,
         status='AVAILABLE',
-        testing_status__in=['PASSED', 'PENDING'],
+        testing_status='PASSED',
     ).exclude(id=exclude_id).filter(
         Q(received_at__lt=received_at) | Q(received_at=received_at, id__lt=exclude_id)
     ).order_by('received_at', 'id')

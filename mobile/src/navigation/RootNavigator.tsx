@@ -12,6 +12,7 @@ import { canAccessTab, primaryTabsForRole } from '../utils/roles';
 import LoginScreen from '../screens/LoginScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import InventoryListScreen from '../screens/InventoryListScreen';
+import ItemMasterScreen from '../screens/ItemMasterScreen';
 import BatchDetailScreen from '../screens/BatchDetailScreen';
 import UnitDetailScreen from '../screens/UnitDetailScreen';
 import GRNListScreen from '../screens/GRNListScreen';
@@ -49,6 +50,7 @@ function InventoryStack() {
   return (
     <Stack.Navigator screenOptions={stackScreenOptions}>
       <Stack.Screen name="InventoryList" component={InventoryListScreen} options={{ title: 'Inventory' }} />
+      <Stack.Screen name="ItemMaster" component={ItemMasterScreen} options={{ title: 'Items' }} />
       <Stack.Screen name="BatchDetail" component={BatchDetailScreen} options={{ title: 'Batch' }} />
       <Stack.Screen name="UnitDetail" component={UnitDetailScreen} options={{ title: 'Unit' }} />
     </Stack.Navigator>
@@ -149,7 +151,7 @@ function MainTabs() {
           borderTopColor: colors.borderSoft,
           borderTopWidth: 1,
           elevation: 12,
-          shadowColor: '#0B1F33',
+          shadowColor: colors.navy,
           shadowOpacity: 0.1,
           shadowRadius: 10,
           shadowOffset: { width: 0, height: -3 },

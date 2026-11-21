@@ -1,11 +1,28 @@
-import React, { useCallback, useState } from 'react';
-import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { warehouseApi, inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { RackIcon } from '../components/icons';
-import { Button, Card, ErrorState, Input, LoadingState, Muted, Screen, Subtitle } from '../components/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  ErrorState,
+  FormActions,
+  Input,
+  LoadingState,
+  ManageActionBar,
+  Muted,
+  Screen,
+  SearchInput,
+  SelectionSummary,
+  SelectList,
+  SelectRow,
+  Subtitle,
+  TextAction,
+} from '../components/ui';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
 import { canAccess } from '../utils/roles';
@@ -13,42 +30,69 @@ import { canAccess } from '../utils/roles';
 export function WarehouseListScreen({ navigation }: any) {
   const { user } = useAuth();
   const scrollPad = useTabScrollPadding(28);
+  const canManage = canAccess(user?.role, 'manageMasterData');
   const canCreate = canAccess(user?.role, 'createRack');
-  const canEditFloor = canAccess(user?.role, 'editFloorLayout');
   const [warehouses, setWarehouses] = useState<any[]>([]);
-  const [floors, setFloors] = useState<any[]>([]);
   const [racks, setRacks] = useState<any[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<number | null>(null);
+  const [rackQuery, setRackQuery] = useState('');
+  const rackQueryRef = useRef(rackQuery);
+  rackQueryRef.current = rackQuery;
+  const selectedWhRef = useRef(selectedWarehouse);
+  selectedWhRef.current = selectedWarehouse;
+  const loadSeq = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showCreateRack, setShowCreateRack] = useState(false);
-  const [showCreateFloor, setShowCreateFloor] = useState(false);
-  const [newCode, setNewCode] = useState('');
-  const [newName, setNewName] = useState('');
-  const [floorCode, setFloorCode] = useState('');
-  const [floorName, setFloorName] = useState('');
-  const [floorRows, setFloorRows] = useState('3');
-  const [floorCols, setFloorCols] = useState('4');
-  const [creating, setCreating] = useState(false);
+  const [showWhForm, setShowWhForm] = useState(false);
+  const [editWh, setEditWh] = useState<any | null>(null);
+  const [editRack, setEditRack] = useState<any | null>(null);
+  const [rackCode, setRackCode] = useState('');
+  const [rackName, setRackName] = useState('');
+  const [whCode, setWhCode] = useState('');
+  const [whName, setWhName] = useState('');
+  const [whAddress, setWhAddress] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const [wh, floorRes, rackRes] = await Promise.all([
-        warehouseApi.warehouses(),
-        warehouseApi.floors(),
-        warehouseApi.racks(),
-      ]);
-      setWarehouses(wh.data);
-      setFloors(floorRes.data);
-      setRacks(rackRes.data);
-      setSelectedWarehouse((prev) => prev ?? (wh.data[0]?.id ?? null));
-      setError('');
-    } catch (e) {
-      setError(getErrorMessage(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (q?: string, warehouseId?: number | null) => {
+      const seq = ++loadSeq.current;
+      try {
+        const params: any = {};
+        if (canManage) params.include_inactive = '1';
+        const query = (q ?? rackQueryRef.current).trim();
+        const whFilter = warehouseId !== undefined ? warehouseId : selectedWhRef.current;
+        const [wh, rackRes] = await Promise.all([
+          warehouseApi.warehouses(params),
+          warehouseApi.racks({
+            ...params,
+            q: query || undefined,
+            warehouse: whFilter || undefined,
+          }),
+        ]);
+        if (seq !== loadSeq.current) return;
+        setWarehouses(wh.data);
+        setRacks(rackRes.data);
+        setSelectedWarehouse((prev) => {
+          if (warehouseId !== undefined) {
+            if (warehouseId == null) {
+              return wh.data[0]?.id ?? null;
+            }
+            return warehouseId;
+          }
+          if (prev && wh.data.some((w: any) => w.id === prev)) return prev;
+          return wh.data[0]?.id ?? null;
+        });
+        setError('');
+      } catch (e) {
+        if (seq !== loadSeq.current) return;
+        setError(getErrorMessage(e));
+      } finally {
+        if (seq === loadSeq.current) setLoading(false);
+      }
+    },
+    [canManage]
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -56,189 +100,397 @@ export function WarehouseListScreen({ navigation }: any) {
     }, [load])
   );
 
-  const filteredFloors = selectedWarehouse
-    ? floors.filter((f) => f.warehouse === selectedWarehouse || f.warehouse_id === selectedWarehouse)
-    : floors;
+  const filteredRacks =
+    selectedWarehouse && !rackQuery.trim()
+      ? racks.filter((r) => r.warehouse === selectedWarehouse || r.warehouse_id === selectedWarehouse)
+      : racks;
 
-  const filteredRacks = selectedWarehouse
-    ? racks.filter((r) => r.warehouse === selectedWarehouse || r.warehouse_id === selectedWarehouse)
-    : racks;
+  const openCreateWarehouse = () => {
+    setEditWh(null);
+    setWhCode('');
+    setWhName('');
+    setWhAddress('');
+    setShowWhForm(true);
+  };
+
+  const openEditWarehouse = (w: any) => {
+    setEditWh(w);
+    setWhCode(w.code || '');
+    setWhName(w.name || '');
+    setWhAddress(w.address || '');
+    setShowWhForm(true);
+  };
+
+  const openCreateRack = () => {
+    setEditRack(null);
+    setRackCode('');
+    setRackName('');
+    setShowCreateRack(true);
+  };
+
+  const openEditRack = (item: any) => {
+    setShowCreateRack(false);
+    setEditRack(item);
+    setRackCode(item.code || '');
+    setRackName(item.name || '');
+  };
 
   const createRack = async () => {
-    if (!selectedWarehouse || !newCode.trim()) {
+    if (!selectedWarehouse || !rackCode.trim()) {
       setError('Select a warehouse and enter a rack code');
       return;
     }
-    setCreating(true);
+    setSaving(true);
     setError('');
     try {
       await warehouseApi.createRack({
         warehouse: selectedWarehouse,
-        code: newCode.trim().toUpperCase(),
-        name: newName.trim() || newCode.trim().toUpperCase(),
+        code: rackCode.trim().toUpperCase(),
+        name: rackName.trim() || rackCode.trim().toUpperCase(),
       });
-      setNewCode('');
-      setNewName('');
+      setRackCode('');
+      setRackName('');
       setShowCreateRack(false);
       await load();
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   };
 
-  const createFloor = async () => {
-    if (!selectedWarehouse || !floorCode.trim()) {
-      setError('Select a warehouse and enter a floor code');
+  const saveWarehouse = async () => {
+    if (!whCode.trim() || !whName.trim()) {
+      setError('Warehouse code and name are required');
       return;
     }
-    const rows = parseInt(floorRows, 10);
-    const cols = parseInt(floorCols, 10);
-    if (!rows || !cols) {
-      setError('Enter valid row and column counts');
-      return;
-    }
-    setCreating(true);
+    setSaving(true);
     setError('');
     try {
-      await warehouseApi.createFloor({
-        warehouse_id: selectedWarehouse,
-        code: floorCode.trim().toUpperCase(),
-        name: floorName.trim() || floorCode.trim().toUpperCase(),
-        row_count: rows,
-        column_count: cols,
-      });
-      setFloorCode('');
-      setFloorName('');
-      setShowCreateFloor(false);
+      const payload = {
+        code: whCode.trim().toUpperCase(),
+        name: whName.trim(),
+        address: whAddress.trim(),
+        is_active: editWh ? editWh.is_active !== false : true,
+      };
+      if (editWh) {
+        await warehouseApi.updateWarehouse(editWh.id, payload);
+      } else {
+        await warehouseApi.createWarehouse(payload);
+      }
+      setShowWhForm(false);
+      setEditWh(null);
+      setWhCode('');
+      setWhName('');
+      setWhAddress('');
       await load();
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   };
 
-  if (loading && !warehouses.length && !floors.length) return <LoadingState />;
-  if (error && !floors.length && !warehouses.length) return <ErrorState message={error} onRetry={load} />;
+  const saveRackEdit = async () => {
+    if (!editRack) return;
+    setSaving(true);
+    setError('');
+    try {
+      await warehouseApi.updateRack(editRack.id, {
+        name: rackName.trim() || editRack.name,
+        code: rackCode.trim().toUpperCase() || editRack.code,
+        is_active: editRack.is_active !== false,
+      });
+      setEditRack(null);
+      setRackCode('');
+      setRackName('');
+      await load();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  const roleHint =
-    user?.role === 'ADMIN'
-      ? 'Admin: create floors, set rows × columns, place large racks, then manage stock.'
-      : user?.role === 'SUPERVISOR'
-        ? 'Supervisor: set floor layouts and place racks; guide allocate / transfer on the floor.'
-        : 'Employee: open a floor map to find which big rack holds stock, then allocate or transfer.';
+  const toggleWarehouseActive = async (w: any) => {
+    const next = w.is_active === false;
+    setSaving(true);
+    setError('');
+    try {
+      await warehouseApi.updateWarehouse(w.id, { is_active: next });
+      if (editWh?.id === w.id) setEditWh({ ...editWh, is_active: next });
+      await load();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleRackActive = async (r: any) => {
+    const next = r.is_active === false;
+    setSaving(true);
+    setError('');
+    try {
+      await warehouseApi.updateRack(r.id, { is_active: next });
+      if (editRack?.id === r.id) setEditRack({ ...editRack, is_active: next });
+      await load();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDeleteWarehouse = (w: any) => {
+    Alert.alert('Delete warehouse?', `${w.code} — ${w.name}\nThis cannot be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          setSaving(true);
+          setError('');
+          try {
+            await warehouseApi.deleteWarehouse(w.id);
+            if (editWh?.id === w.id) {
+              setEditWh(null);
+              setShowWhForm(false);
+            }
+            await load(rackQueryRef.current, null);
+          } catch (e) {
+            setError(getErrorMessage(e));
+          } finally {
+            setSaving(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const confirmDeleteRack = (r: any) => {
+    Alert.alert('Delete rack?', `${r.code} — ${r.name}\nThis cannot be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          setSaving(true);
+          setError('');
+          try {
+            await warehouseApi.deleteRack(r.id);
+            if (editRack?.id === r.id) setEditRack(null);
+            await load();
+          } catch (e) {
+            setError(getErrorMessage(e));
+          } finally {
+            setSaving(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  if (loading && !warehouses.length && !racks.length) return <LoadingState />;
+  if (error && !racks.length && !warehouses.length) return <ErrorState message={error} onRetry={() => load()} />;
 
   const header = (
     <View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <RackIcon size={22} color={colors.primaryDark} />
-        <Muted>{roleHint}</Muted>
+        <Muted>Search racks, open maps, and manage stock placement.</Muted>
       </View>
+
+      <SearchInput
+        placeholder="Search racks..."
+        value={rackQuery}
+        onChangeText={setRackQuery}
+        onSubmitEditing={() => load(rackQuery)}
+        onClear={() => {
+          setRackQuery('');
+          load('');
+        }}
+      />
+      <Button label="Search" variant="secondary" onPress={() => load(rackQuery)} />
 
       <Card>
-        <Subtitle>Warehouse</Subtitle>
-        {warehouses.map((w) => (
-          <Pressable key={w.id} onPress={() => setSelectedWarehouse(w.id)}>
-            <Text
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <Subtitle>Warehouses</Subtitle>
+          {canManage ? (
+            <TextAction
+              label={showWhForm && !editWh ? 'Cancel' : '+ Add'}
+              onPress={() => {
+                if (showWhForm && !editWh) {
+                  setShowWhForm(false);
+                  return;
+                }
+                openCreateWarehouse();
+              }}
+            />
+          ) : null}
+        </View>
+
+        {warehouses.map((w, idx) => {
+          const selected = selectedWarehouse === w.id;
+          const active = w.is_active !== false;
+          return (
+            <View
+              key={w.id}
               style={{
-                paddingVertical: 8,
-                fontWeight: selectedWarehouse === w.id ? '700' : '400',
-                color: selectedWarehouse === w.id ? colors.primary : colors.text,
+                paddingVertical: 12,
+                borderTopWidth: idx === 0 ? 0 : StyleSheet.hairlineWidth,
+                borderTopColor: colors.borderSoft,
               }}
             >
-              {w.code} — {w.name}
-            </Text>
-          </Pressable>
-        ))}
+              <Pressable
+                onPress={() => {
+                  setSelectedWarehouse(w.id);
+                  load(rackQuery, w.id);
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 10,
+                  paddingVertical: 4,
+                  paddingHorizontal: 8,
+                  borderRadius: 10,
+                  backgroundColor: selected ? colors.primarySoft : 'transparent',
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      fontWeight: '700',
+                      fontSize: 15,
+                      color: selected ? colors.primaryDark : colors.navy,
+                    }}
+                  >
+                    {w.code}
+                  </Text>
+                  <Muted>{w.name}</Muted>
+                </View>
+                {!active ? <Badge label="Inactive" tone="danger" /> : null}
+                {selected ? <Badge label="Selected" tone="primary" /> : null}
+              </Pressable>
+              {canManage ? (
+                <ManageActionBar
+                  isActive={active}
+                  disabled={saving}
+                  onEdit={() => openEditWarehouse(w)}
+                  onToggleActive={() => toggleWarehouseActive(w)}
+                  onDelete={() => confirmDeleteWarehouse(w)}
+                />
+              ) : null}
+            </View>
+          );
+        })}
       </Card>
 
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <View style={{ flex: 1 }}>
-          <Button
-            label="Allocate"
-            onPress={() => navigation.navigate('Allocate', { positionId: null, positionLabel: null })}
-          />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Button
-            label="Transfer"
-            variant="secondary"
-            onPress={() =>
-              navigation.navigate('Transfer', {
-                fromPositionId: null,
-                toPositionId: null,
-                batchId: null,
-                unitId: null,
-              })
-            }
-          />
-        </View>
-      </View>
-
-      {canEditFloor ? (
-        <Button
-          label={showCreateFloor ? 'Cancel new floor' : 'Create floor'}
-          variant="ghost"
-          onPress={() => {
-            setShowCreateFloor((v) => !v);
-            setShowCreateRack(false);
-          }}
-        />
-      ) : null}
-
-      {showCreateFloor && canEditFloor ? (
+      {showWhForm && canManage ? (
         <Card>
-          <Subtitle>New floor</Subtitle>
-          <Input
-            placeholder="Floor code (e.g. G or L1)"
-            value={floorCode}
-            onChangeText={setFloorCode}
-            autoCapitalize="characters"
+          <Subtitle>{editWh ? `Edit warehouse` : 'New warehouse'}</Subtitle>
+          <Input label="Code" value={whCode} onChangeText={setWhCode} autoCapitalize="characters" />
+          <Input label="Name" value={whName} onChangeText={setWhName} />
+          <Input label="Address" value={whAddress} onChangeText={setWhAddress} />
+          <FormActions
+            primaryLabel="Save"
+            onPrimary={saveWarehouse}
+            loading={saving}
+            onCancel={() => {
+              setShowWhForm(false);
+              setEditWh(null);
+            }}
           />
-          <Input placeholder="Floor name" value={floorName} onChangeText={setFloorName} />
-          <Input placeholder="Rows of big racks" value={floorRows} onChangeText={setFloorRows} keyboardType="number-pad" />
-          <Input
-            placeholder="Columns of big racks"
-            value={floorCols}
-            onChangeText={setFloorCols}
-            keyboardType="number-pad"
-          />
-          <Button label="Save floor" onPress={createFloor} loading={creating} />
         </Card>
       ) : null}
 
-      {canCreate ? (
-        <Button
-          label={showCreateRack ? 'Cancel new rack' : 'Create rack'}
-          variant="ghost"
-          onPress={() => {
-            setShowCreateRack((v) => !v);
-            setShowCreateFloor(false);
-          }}
-        />
-      ) : (
-        <Muted>Floor layout and rack placement are managed by supervisors and admins.</Muted>
-      )}
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
+        <View style={{ flex: 1 }}>
+          <Button label="Allocate" onPress={() => navigation.navigate('Allocate')} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Button label="Transfer" variant="secondary" onPress={() => navigation.navigate('Transfer')} />
+        </View>
+      </View>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <Subtitle>Racks ({filteredRacks.length})</Subtitle>
+        {canCreate ? (
+          <TextAction
+            label={showCreateRack ? 'Cancel' : '+ Add rack'}
+            onPress={() => {
+              if (showCreateRack) {
+                setShowCreateRack(false);
+                return;
+              }
+              openCreateRack();
+            }}
+          />
+        ) : null}
+      </View>
 
       {showCreateRack && canCreate ? (
         <Card>
-          <Subtitle>New large rack</Subtitle>
+          <Subtitle>New rack</Subtitle>
           <Input
-            placeholder="Rack code (e.g. R-11)"
-            value={newCode}
-            onChangeText={setNewCode}
+            label="Code"
+            placeholder="e.g. R-11"
+            value={rackCode}
+            onChangeText={setRackCode}
             autoCapitalize="characters"
           />
-          <Input placeholder="Rack name" value={newName} onChangeText={setNewName} />
-          <Button label="Save rack" onPress={createRack} loading={creating} />
+          <Input label="Name" placeholder="Rack name" value={rackName} onChangeText={setRackName} />
+          <FormActions
+            primaryLabel="Create rack"
+            onPrimary={createRack}
+            loading={saving}
+            onCancel={() => setShowCreateRack(false)}
+          />
+        </Card>
+      ) : null}
+
+      {editRack && canManage ? (
+        <Card>
+          <Subtitle>Edit rack</Subtitle>
+          <Input label="Code" value={rackCode} onChangeText={setRackCode} autoCapitalize="characters" />
+          <Input label="Name" value={rackName} onChangeText={setRackName} />
+          <FormActions
+            primaryLabel="Save"
+            onPrimary={saveRackEdit}
+            loading={saving}
+            onCancel={() => setEditRack(null)}
+            secondary={
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 10,
+                  marginTop: 12,
+                  paddingTop: 10,
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                  borderTopColor: colors.borderSoft,
+                }}
+              >
+                <TextAction
+                  label={editRack.is_active === false ? 'Activate' : 'Deactivate'}
+                  tone="muted"
+                  onPress={() => toggleRackActive(editRack)}
+                  disabled={saving}
+                />
+                <Text style={{ color: colors.border }}>·</Text>
+                <TextAction
+                  label="Delete rack"
+                  tone="danger"
+                  onPress={() => confirmDeleteRack(editRack)}
+                  disabled={saving}
+                />
+              </View>
+            }
+          />
         </Card>
       ) : null}
 
       {error ? <Text style={{ color: colors.danger, marginBottom: 8 }}>{error}</Text> : null}
-      <Subtitle>Floors ({filteredFloors.length})</Subtitle>
-      <Muted>Open a floor to see the big rack grid for that level.</Muted>
     </View>
   );
 
@@ -246,54 +498,41 @@ export function WarehouseListScreen({ navigation }: any) {
     <Screen>
       <FlatList
         style={{ flex: 1 }}
-        data={filteredFloors}
+        data={filteredRacks}
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={{ paddingBottom: scrollPad }}
         ListHeaderComponent={header}
-        ListEmptyComponent={
-          <Card>
-            <Muted>
-              {canEditFloor
-                ? 'No floors yet. Create one and set how many rack rows and columns it has.'
-                : 'No floors configured yet. Ask an admin or supervisor to set them up.'}
-            </Muted>
-          </Card>
-        }
-        renderItem={({ item }) => (
-          <Pressable onPress={() => navigation.navigate('FloorMap', { id: item.id })}>
+        renderItem={({ item }) => {
+          const active = item.is_active !== false;
+          return (
             <Card>
-              <Text style={{ fontWeight: '700' }}>
-                {item.code} — {item.name}
-              </Text>
-              <Muted>
-                Level {item.level} · Grid {item.row_count}×{item.column_count} · {item.warehouse_code}
-              </Muted>
-              <Muted>Tap to open floor rack visualization</Muted>
-            </Card>
-          </Pressable>
-        )}
-        ListFooterComponent={
-          <View style={{ marginTop: 16 }}>
-            <Subtitle>All racks ({filteredRacks.length})</Subtitle>
-            <Muted>Shortcut into a rack’s shelf × position map.</Muted>
-            {filteredRacks.map((item) => (
-              <Pressable key={item.id} onPress={() => navigation.navigate('RackMap', { id: item.id })}>
-                <Card>
-                  <Text style={{ fontWeight: '700' }}>
-                    {item.code} — {item.name}
-                  </Text>
-                  <Muted>
-                    {item.warehouse_code}
-                    {item.floor_code ? ` · Floor ${item.floor_code}` : ''}
-                    {item.row_index && item.column_index
-                      ? ` · Bay R${item.row_index}-C${item.column_index}`
-                      : ' · Not on floor grid'}
-                  </Muted>
-                </Card>
+              <Pressable onPress={() => navigation.navigate('RackMap', { id: item.id })}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <Text style={{ fontWeight: '800', fontSize: 16, color: colors.navy }}>{item.code}</Text>
+                      {!active ? <Badge label="Inactive" tone="danger" /> : null}
+                    </View>
+                    <Text style={{ color: colors.text, fontWeight: '600', marginTop: 2 }}>{item.name}</Text>
+                    <Muted>
+                      {item.warehouse_code} · {item.barcode_value}
+                    </Muted>
+                  </View>
+                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13, marginTop: 2 }}>Map →</Text>
+                </View>
               </Pressable>
-            ))}
-          </View>
-        }
+              {canManage ? (
+                <ManageActionBar
+                  isActive={active}
+                  disabled={saving}
+                  onEdit={() => openEditRack(item)}
+                  onToggleActive={() => toggleRackActive(item)}
+                  onDelete={() => confirmDeleteRack(item)}
+                />
+              ) : null}
+            </Card>
+          );
+        }}
       />
     </Screen>
   );
@@ -370,105 +609,206 @@ export function AllocateScreen({ route }: any) {
   const params = route?.params || {};
   const [locations, setLocations] = useState<any[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
+  const [units, setUnits] = useState<any[]>([]);
+  const [mode, setMode] = useState<'batch' | 'unit'>('batch');
+  const [stockQ, setStockQ] = useState('');
+  const [locQ, setLocQ] = useState('');
+  const stockQRef = useRef(stockQ);
+  stockQRef.current = stockQ;
+  const locQRef = useRef(locQ);
+  locQRef.current = locQ;
   const [batchId, setBatchId] = useState<number | null>(null);
+  const [unitId, setUnitId] = useState<number | null>(null);
   const [positionId, setPositionId] = useState<number | null>(params.positionId ?? null);
   const [positionLabel, setPositionLabel] = useState<string | null>(params.positionLabel ?? null);
   const [quantity, setQuantity] = useState('');
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const appliedParams = useRef('');
 
-  // Always sync from route params on focus so re-entry clears stale presets.
   useFocusEffect(
     useCallback(() => {
       const p = route?.params || {};
-      setPositionId(p.positionId ?? null);
-      setPositionLabel(p.positionLabel ?? null);
+      const key = `${p.positionId ?? ''}|${p.positionLabel ?? ''}`;
+      if (key !== appliedParams.current && (p.positionId != null || p.positionLabel)) {
+        appliedParams.current = key;
+        if (p.positionId != null) setPositionId(p.positionId);
+        if (p.positionLabel) setPositionLabel(p.positionLabel);
+      }
       setMsg('');
       setError('');
     }, [route?.params?.positionId, route?.params?.positionLabel])
   );
 
-  useEffect(() => {
-    (async () => {
-      const [loc, inv] = await Promise.all([warehouseApi.locations(), inventoryApi.list({ type: 'BULK' })]);
+  const loadPickers = useCallback(async (opts?: { stockQ?: string; locQ?: string }) => {
+    const sq = opts?.stockQ ?? stockQRef.current;
+    const lq = opts?.locQ ?? locQRef.current;
+    try {
+      const [loc, inv] = await Promise.all([
+        warehouseApi.locations({ q: lq || undefined }),
+        inventoryApi.list({ q: sq || undefined }),
+      ]);
       setLocations(loc.data);
       setBatches(inv.data.batches || []);
-    })();
+      setUnits(inv.data.units || []);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
   }, []);
 
+  useEffect(() => {
+    loadPickers();
+  }, [loadPickers]);
+
   const selectedBatch = batches.find((b) => b.id === batchId);
+  const selectedUnit = units.find((u) => u.id === unitId);
+  const stockLabel =
+    mode === 'batch'
+      ? selectedBatch
+        ? `Batch: ${selectedBatch.batch_code}`
+        : ''
+      : selectedUnit
+        ? `Unit: ${selectedUnit.unit_code}`
+        : '';
+  const destLabel = positionId && positionLabel ? `Destination: ${positionLabel}` : '';
 
   return (
     <Screen>
-      <ScrollView>
-        <Muted>Assign a batch to a rack position (actual location).</Muted>
+      <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+        <Muted>Assign stock to a rack position (actual location).</Muted>
         {positionLabel && positionId ? <Muted>Preselected from map: {positionLabel}</Muted> : null}
 
+        <SelectionSummary lines={[stockLabel, destLabel]} />
+
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+          <View style={{ flex: 1 }}>
+            <Button
+              label="Batch"
+              variant={mode === 'batch' ? 'primary' : 'secondary'}
+              onPress={() => {
+                setMode('batch');
+                setUnitId(null);
+              }}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Button
+              label="Unit"
+              variant={mode === 'unit' ? 'primary' : 'secondary'}
+              onPress={() => {
+                setMode('unit');
+                setBatchId(null);
+                setQuantity('');
+              }}
+            />
+          </View>
+        </View>
+
         <Card>
-          <Subtitle>Select batch</Subtitle>
-          {batches.slice(0, 12).map((b) => (
-            <Pressable key={b.id} onPress={() => setBatchId(b.id)}>
-              <Text
-                style={{
-                  paddingVertical: 6,
-                  fontWeight: batchId === b.id ? '700' : '400',
-                  color: batchId === b.id ? colors.primary : colors.text,
-                }}
-              >
-                {b.batch_code} — avail {b.available_qty}
-              </Text>
-            </Pressable>
-          ))}
+          <Subtitle>{mode === 'batch' ? 'Select batch' : 'Select unit'}</Subtitle>
+          <SearchInput
+            placeholder={mode === 'batch' ? 'Search batch / item...' : 'Search unit / item...'}
+            value={stockQ}
+            onChangeText={setStockQ}
+            onSubmitEditing={() => loadPickers()}
+            onClear={() => {
+              setStockQ('');
+              loadPickers({ stockQ: '' });
+            }}
+          />
+          <Button label="Search stock" variant="secondary" onPress={() => loadPickers()} />
+          <Muted>
+            {mode === 'batch' ? `${batches.length} batches` : `${units.length} units`} · scroll inside box
+          </Muted>
+          {mode === 'batch' ? (
+            <SelectList maxHeight={200} count={batches.length} emptyLabel="No batches found">
+              {batches.slice(0, 50).map((b) => (
+                <SelectRow
+                  key={b.id}
+                  label={b.batch_code}
+                  subtitle={`Available ${b.available_qty}`}
+                  selected={batchId === b.id}
+                  onPress={() => setBatchId(b.id)}
+                />
+              ))}
+            </SelectList>
+          ) : (
+            <SelectList maxHeight={200} count={units.length} emptyLabel="No units found">
+              {units.slice(0, 50).map((u) => (
+                <SelectRow
+                  key={u.id}
+                  label={u.unit_code}
+                  subtitle={u.item_name || u.item?.name || 'Item'}
+                  selected={unitId === u.id}
+                  onPress={() => setUnitId(u.id)}
+                />
+              ))}
+            </SelectList>
+          )}
         </Card>
 
         <Card>
           <Subtitle>Select destination</Subtitle>
-          {locations.slice(0, 40).map((l) => (
-            <Pressable
-              key={l.id}
-              onPress={() => {
-                setPositionId(l.id);
-                setPositionLabel(l.label);
-              }}
-            >
-              <Text
-                style={{
-                  paddingVertical: 6,
-                  fontWeight: positionId === l.id ? '700' : '400',
-                  color: positionId === l.id ? colors.primary : colors.text,
+          <SearchInput
+            placeholder="Search location..."
+            value={locQ}
+            onChangeText={setLocQ}
+            onSubmitEditing={() => loadPickers()}
+            onClear={() => {
+              setLocQ('');
+              loadPickers({ locQ: '' });
+            }}
+          />
+          <Button label="Search locations" variant="secondary" onPress={() => loadPickers()} />
+          <Muted>{locations.length} locations · scroll inside box</Muted>
+          <SelectList maxHeight={220} count={locations.length} emptyLabel="No locations found">
+            {locations.slice(0, 80).map((l) => (
+              <SelectRow
+                key={l.id}
+                label={l.label}
+                selected={positionId === l.id}
+                onPress={() => {
+                  setPositionId(l.id);
+                  setPositionLabel(l.label);
                 }}
-              >
-                {l.label}
-              </Text>
-            </Pressable>
-          ))}
+              />
+            ))}
+          </SelectList>
         </Card>
 
-        <Input
-          placeholder={selectedBatch ? `Quantity (max ${selectedBatch.available_qty})` : 'Quantity (optional)'}
-          value={quantity}
-          onChangeText={setQuantity}
-          keyboardType="numeric"
-        />
+        {mode === 'batch' ? (
+          <Input
+            placeholder={selectedBatch ? `Quantity (max ${selectedBatch.available_qty})` : 'Quantity (optional)'}
+            value={quantity}
+            onChangeText={setQuantity}
+            keyboardType="numeric"
+          />
+        ) : (
+          <Muted>Unit allocate moves quantity 1.</Muted>
+        )}
         {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
         {msg ? <Text style={{ color: colors.success }}>{msg}</Text> : null}
         <Button
           label="Allocate"
           loading={loading}
           onPress={async () => {
-            if (!batchId || !positionId) {
-              setError('Select batch and location');
+            if ((!batchId && !unitId) || !positionId) {
+              setError(mode === 'batch' ? 'Select batch and location' : 'Select unit and location');
               return;
             }
             setLoading(true);
             try {
               const payload: any = {
-                batch_id: batchId,
                 position_id: positionId,
                 allocation_type: 'ACTUAL',
               };
-              if (quantity) payload.quantity = Number(quantity);
+              if (unitId) {
+                payload.unit_id = unitId;
+              } else {
+                payload.batch_id = batchId;
+                if (quantity) payload.quantity = Number(quantity);
+              }
               await warehouseApi.allocate(payload);
               setMsg('Allocated successfully');
               setError('');
@@ -496,16 +836,35 @@ export function TransferScreen({ route }: any) {
   const [locations, setLocations] = useState<any[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
+  const [stockQ, setStockQ] = useState('');
+  const [locQ, setLocQ] = useState('');
+  const stockQRef = useRef(stockQ);
+  stockQRef.current = stockQ;
+  const locQRef = useRef(locQ);
+  locQRef.current = locQ;
   const [loading, setLoading] = useState(false);
+  const appliedParams = useRef('');
 
   useFocusEffect(
     useCallback(() => {
       const p = route?.params || {};
-      setFromId(p.fromPositionId ?? null);
-      setToId(p.toPositionId ?? null);
-      setBatchId(p.batchId ?? null);
-      setUnitId(p.unitId ?? null);
-      if (p.unitId) setQty('1');
+      const key = `${p.fromPositionId ?? ''}|${p.toPositionId ?? ''}|${p.batchId ?? ''}|${p.unitId ?? ''}`;
+      const hasUseful =
+        p.fromPositionId != null || p.toPositionId != null || p.batchId != null || p.unitId != null;
+      if (hasUseful && key !== appliedParams.current) {
+        appliedParams.current = key;
+        if (p.fromPositionId != null) setFromId(p.fromPositionId);
+        if (p.toPositionId != null) setToId(p.toPositionId);
+        if (p.batchId != null) {
+          setBatchId(p.batchId);
+          setUnitId(null);
+        }
+        if (p.unitId != null) {
+          setUnitId(p.unitId);
+          setBatchId(null);
+          setQty('1');
+        }
+      }
       setMsg('');
       setError('');
     }, [
@@ -516,87 +875,129 @@ export function TransferScreen({ route }: any) {
     ])
   );
 
-  useEffect(() => {
-    (async () => {
-      const [loc, inv] = await Promise.all([warehouseApi.locations(), inventoryApi.list()]);
+  const loadPickers = useCallback(async (opts?: { stockQ?: string; locQ?: string }) => {
+    const sq = opts?.stockQ ?? stockQRef.current;
+    const lq = opts?.locQ ?? locQRef.current;
+    try {
+      const [loc, inv] = await Promise.all([
+        warehouseApi.locations({ q: lq || undefined }),
+        inventoryApi.list({ q: sq || undefined }),
+      ]);
       setLocations(loc.data);
       setBatches(inv.data.batches || []);
       setUnits(inv.data.units || []);
-    })();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
   }, []);
 
+  useEffect(() => {
+    loadPickers();
+  }, [loadPickers]);
+
   const mode: 'batch' | 'unit' = unitId ? 'unit' : 'batch';
+  const selectedBatch = batches.find((b) => b.id === batchId);
+  const selectedUnit = units.find((u) => u.id === unitId);
+  const fromLabel = locations.find((l) => l.id === fromId)?.label;
+  const toLabel = locations.find((l) => l.id === toId)?.label;
 
   return (
     <Screen>
-      <ScrollView>
+      <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
         <Muted>Move stock between positions. Source must have active stock.</Muted>
-        {fromId ? <Muted>From position preselected from rack map (#{fromId}).</Muted> : null}
-        {toId ? <Muted>To position preselected from rack map (#{toId}).</Muted> : null}
+
+        <SelectionSummary
+          lines={[
+            selectedBatch
+              ? `Stock: ${selectedBatch.batch_code}`
+              : selectedUnit
+                ? `Stock: ${selectedUnit.unit_code}`
+                : '',
+            fromId ? `From: ${fromLabel || `#${fromId}`}` : '',
+            toId ? `To: ${toLabel || `#${toId}`}` : '',
+          ]}
+        />
 
         <Card>
           <Subtitle>Stock to move</Subtitle>
-          <Muted>Pick a batch or a serialized unit (exactly one).</Muted>
-          <Text style={{ fontWeight: '700', marginTop: 8, marginBottom: 4 }}>Batches</Text>
-          {batches.slice(0, 12).map((b) => (
-            <Pressable
-              key={`b-${b.id}`}
-              onPress={() => {
-                setBatchId(b.id);
-                setUnitId(null);
-              }}
-            >
-              <Text
-                style={{
-                  paddingVertical: 6,
-                  fontWeight: batchId === b.id ? '700' : '400',
-                  color: batchId === b.id ? colors.primary : colors.text,
+          <SearchInput
+            placeholder="Search batch / unit..."
+            value={stockQ}
+            onChangeText={setStockQ}
+            onSubmitEditing={() => loadPickers()}
+            onClear={() => {
+              setStockQ('');
+              loadPickers({ stockQ: '' });
+            }}
+          />
+          <Button label="Search stock" variant="secondary" onPress={() => loadPickers()} />
+          <Muted>Batches</Muted>
+          <SelectList maxHeight={160} count={batches.length} emptyLabel="No batches found">
+            {batches.slice(0, 40).map((b) => (
+              <SelectRow
+                key={`b-${b.id}`}
+                label={b.batch_code}
+                subtitle={`Avail ${b.available_qty}`}
+                selected={batchId === b.id}
+                onPress={() => {
+                  setBatchId(b.id);
+                  setUnitId(null);
                 }}
-              >
-                {b.batch_code} (id {b.id})
-              </Text>
-            </Pressable>
-          ))}
-          <Text style={{ fontWeight: '700', marginTop: 10, marginBottom: 4 }}>Units</Text>
-          {units.slice(0, 12).map((u) => (
-            <Pressable
-              key={`u-${u.id}`}
-              onPress={() => {
-                setUnitId(u.id);
-                setBatchId(null);
-                setQty('1');
-              }}
-            >
-              <Text
-                style={{
-                  paddingVertical: 6,
-                  fontWeight: unitId === u.id ? '700' : '400',
-                  color: unitId === u.id ? colors.primary : colors.text,
+              />
+            ))}
+          </SelectList>
+          <Muted>Units</Muted>
+          <SelectList maxHeight={160} count={units.length} emptyLabel="No units found">
+            {units.slice(0, 40).map((u) => (
+              <SelectRow
+                key={`u-${u.id}`}
+                label={u.unit_code}
+                subtitle={u.item_name || u.item?.name || 'Item'}
+                selected={unitId === u.id}
+                onPress={() => {
+                  setUnitId(u.id);
+                  setBatchId(null);
+                  setQty('1');
                 }}
-              >
-                {u.unit_code} (id {u.id})
-              </Text>
-            </Pressable>
-          ))}
-          {!batches.length && !units.length ? <Muted>No inventory loaded.</Muted> : null}
+              />
+            ))}
+          </SelectList>
         </Card>
 
         <Card>
           <Subtitle>From / To location</Subtitle>
-          {locations.slice(0, 40).map((l) => (
-            <Text key={l.id} style={{ marginBottom: 4 }}>
-              #{l.id}: {l.label}{' '}
-              <Text style={{ color: colors.primary }} onPress={() => setFromId(l.id)}>
-                From
-              </Text>
-              {' · '}
-              <Text style={{ color: colors.success }} onPress={() => setToId(l.id)}>
-                To
-              </Text>
-            </Text>
-          ))}
+          <SearchInput
+            placeholder="Search location..."
+            value={locQ}
+            onChangeText={setLocQ}
+            onSubmitEditing={() => loadPickers()}
+            onClear={() => {
+              setLocQ('');
+              loadPickers({ locQ: '' });
+            }}
+          />
+          <Button label="Search locations" variant="secondary" onPress={() => loadPickers()} />
+          <Muted>{locations.length} locations · tap From or To on a row</Muted>
+          <SelectList maxHeight={220} count={locations.length} emptyLabel="No locations found">
+            {locations.slice(0, 80).map((l) => (
+              <SelectRow
+                key={l.id}
+                label={l.label}
+                subtitle={fromId === l.id ? 'FROM' : toId === l.id ? 'TO' : undefined}
+                selected={fromId === l.id || toId === l.id}
+                onPress={() => {}}
+                trailing={
+                  <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                    <TextAction label="From" onPress={() => setFromId(l.id)} />
+                    <Text style={{ color: colors.border }}>·</Text>
+                    <TextAction label="To" onPress={() => setToId(l.id)} tone="muted" />
+                  </View>
+                }
+              />
+            ))}
+          </SelectList>
           <Muted>
-            From: {fromId ?? '—'} · To: {toId ?? '—'}
+            From: {fromLabel || fromId || '—'} · To: {toLabel || toId || '—'}
           </Muted>
         </Card>
 

@@ -12,7 +12,8 @@ export type AppModule =
   | 'settings'
   | 'createRack'
   | 'editFloorLayout'
-  | 'fifoOverride';
+  | 'fifoOverride'
+  | 'manageMasterData';
 
 const ALL_STAFF: RoleCode[] = ['ADMIN', 'SUPERVISOR', 'WAREHOUSE_EMPLOYEE'];
 const LEADS: RoleCode[] = ['ADMIN', 'SUPERVISOR'];
@@ -30,6 +31,7 @@ const MODULE_ROLES: Record<AppModule, RoleCode[]> = {
   createRack: LEADS,
   editFloorLayout: LEADS,
   fifoOverride: LEADS,
+  manageMasterData: LEADS,
 };
 
 export function canAccess(role: RoleCode | undefined | null, module: AppModule): boolean {
@@ -53,11 +55,11 @@ export function roleLabel(role: RoleCode | undefined | null): string {
 export function roleBlurb(role: RoleCode | undefined | null): string {
   switch (role) {
     case 'ADMIN':
-      return 'Full control: floor grids, rack placement, inventory, GRN, reports, and FIFO overrides.';
+      return 'Full control: floors, master data, rack maps, GRN import, reports, and FIFO overrides.';
     case 'SUPERVISOR':
-      return 'Floor lead: set rows/columns, place big racks, GRN import, reports, and FIFO overrides.';
+      return 'Floor lead: floor grids, master data, GRN import, reports, and FIFO overrides.';
     case 'WAREHOUSE_EMPLOYEE':
-      return 'Floor ops: open floor maps, find stock in big racks, allocate, transfer, withdraw.';
+      return 'Floor ops: scan, allocate, transfer, withdraw. No master-data edits or FIFO override.';
     default:
       return 'Signed in.';
   }
@@ -87,7 +89,7 @@ export function canAccessTab(role: RoleCode | undefined | null, tabName: string)
 export function primaryTabsForRole(role: RoleCode | undefined | null): string[] {
   // Pattern: [left, left, Scanner, right, More]
   if (role === 'ADMIN') {
-    // Floors tab = floor rack grid + section maps + stock management
+    // Racks tab = visual shelf/position map + stock management
     return ['Dashboard', 'Inventory', 'Scanner', 'Warehouse', 'More'];
   }
   if (role === 'SUPERVISOR') {
@@ -123,8 +125,8 @@ export function moreLinksForRole(role: RoleCode | undefined | null): MoreLink[] 
     },
     {
       key: 'warehouse',
-      title: 'Floor & rack maps',
-      subtitle: 'Floor grids of big racks, then shelf sections and stock',
+      title: 'Racks map',
+      subtitle: 'Visual rows/columns and stock allocate / transfer',
       tab: 'Warehouse',
       module: 'warehouse',
     },

@@ -6,7 +6,15 @@ from warehouses.models import Floor, Rack, RackPosition, RackTransfer, Shelf, Wa
 class WarehouseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Warehouse
-        fields = '__all__'
+        fields = ('id', 'code', 'name', 'address', 'is_active', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'created_at', 'updated_at')
+
+
+class RackCreateSerializer(serializers.Serializer):
+    warehouse = serializers.PrimaryKeyRelatedField(queryset=Warehouse.objects.all())
+    code = serializers.CharField(max_length=50)
+    name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    shelves = serializers.JSONField(required=False)
 
 
 class FloorSerializer(serializers.ModelSerializer):
@@ -67,7 +75,33 @@ class RackSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Rack
-        fields = '__all__'
+        fields = (
+            'id',
+            'warehouse',
+            'warehouse_code',
+            'floor',
+            'floor_code',
+            'row_index',
+            'column_index',
+            'code',
+            'name',
+            'barcode',
+            'barcode_value',
+            'shelves',
+            'is_active',
+            'created_at',
+            'updated_at',
+        )
+        read_only_fields = (
+            'id',
+            'barcode',
+            'barcode_value',
+            'warehouse_code',
+            'floor_code',
+            'shelves',
+            'created_at',
+            'updated_at',
+        )
 
 
 class RackTransferSerializer(serializers.ModelSerializer):

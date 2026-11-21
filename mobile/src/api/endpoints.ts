@@ -13,8 +13,19 @@ export const dashboardApi = {
 
 export const inventoryApi = {
   list: (params?: { q?: string; type?: string }) => api.get('/inventory/', { params }),
+  categories: (params?: { q?: string }) => api.get('/inventory/categories/', { params }),
+  items: (params?: { q?: string; include_inactive?: string }) =>
+    api.get('/inventory/items/', { params }),
+  item: (id: number) => api.get(`/inventory/items/${id}/`),
+  createItem: (payload: unknown) => api.post('/inventory/items/', payload),
+  updateItem: (id: number, payload: unknown) => api.patch(`/inventory/items/${id}/`, payload),
+  deleteItem: (id: number) => api.delete(`/inventory/items/${id}/`),
   batch: (id: number) => api.get(`/inventory/batches/${id}/`),
+  updateBatchTesting: (id: number, testing_status: string) =>
+    api.patch(`/inventory/batches/${id}/`, { testing_status }),
   unit: (id: number) => api.get(`/inventory/units/${id}/`),
+  updateUnitTesting: (id: number, testing_status: string) =>
+    api.patch(`/inventory/units/${id}/`, { testing_status }),
   scan: (barcode: string) => api.get(`/inventory/scan/${encodeURIComponent(barcode)}/`),
   history: (type: 'batch' | 'unit', id: number) =>
     api.get(`/inventory/${type}/${id}/history/`),
@@ -40,7 +51,7 @@ export const inventoryApi = {
 };
 
 export const grnApi = {
-  list: () => api.get('/grns/'),
+  list: (params?: { q?: string }) => api.get('/grns/', { params }),
   detail: (id: number) => api.get(`/grns/${id}/`),
   create: (payload: unknown) => api.post('/grns/', payload),
   import: (payload: unknown) => api.post('/grns/import/', payload),
@@ -48,7 +59,12 @@ export const grnApi = {
 };
 
 export const warehouseApi = {
-  warehouses: () => api.get('/warehouses/'),
+  warehouses: (params?: { q?: string; include_inactive?: string }) =>
+    api.get('/warehouses/', { params }),
+  warehouse: (id: number) => api.get(`/warehouses/${id}/`),
+  createWarehouse: (payload: unknown) => api.post('/warehouses/', payload),
+  updateWarehouse: (id: number, payload: unknown) => api.patch(`/warehouses/${id}/`, payload),
+  deleteWarehouse: (id: number) => api.delete(`/warehouses/${id}/`),
   floors: (params?: { warehouse?: number }) => api.get('/floors/', { params }),
   floor: (id: number) => api.get(`/floors/${id}/`),
   floorMap: (id: number) => api.get(`/floors/${id}/map/`),
@@ -57,12 +73,20 @@ export const warehouseApi = {
     api.patch(`/floors/${id}/layout/`, payload),
   placeRack: (floorId: number, payload: unknown) =>
     api.post(`/floors/${floorId}/place-rack/`, payload),
-  racks: (params?: { warehouse?: number; floor?: number }) => api.get('/racks/', { params }),
+  racks: (params?: {
+    q?: string;
+    warehouse?: number | string;
+    floor?: number;
+    include_inactive?: string;
+  }) => api.get('/racks/', { params }),
   rack: (id: number) => api.get(`/racks/${id}/`),
+  updateRack: (id: number, payload: unknown) => api.patch(`/racks/${id}/`, payload),
+  deleteRack: (id: number) => api.delete(`/racks/${id}/`),
   rackInventory: (id: number) => api.get(`/racks/${id}/inventory/`),
   rackMap: (id: number) => api.get(`/racks/${id}/map/`),
-  locations: () => api.get('/locations/'),
+  locations: (params?: { q?: string }) => api.get('/locations/', { params }),
   allocate: (payload: unknown) => api.post('/locations/allocate/', payload),
+  deallocate: (payload: unknown) => api.post('/locations/deallocate/', payload),
   transfer: (payload: unknown) => api.post('/locations/transfer/', payload),
   createRack: (payload: unknown) => api.post('/racks/', payload),
 };
@@ -70,7 +94,7 @@ export const warehouseApi = {
 export const withdrawalApi = {
   validate: (payload: unknown) => api.post('/withdrawals/validate/', payload),
   create: (payload: unknown) => api.post('/withdrawals/', payload),
-  list: () => api.get('/withdrawals/'),
+  list: (params?: { q?: string }) => api.get('/withdrawals/', { params }),
   detail: (id: number) => api.get(`/withdrawals/${id}/`),
   pdfPath: (id: number) => `/withdrawals/${id}/pdf/`,
 };

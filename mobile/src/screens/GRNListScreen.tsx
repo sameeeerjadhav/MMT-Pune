@@ -1,11 +1,11 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { grnApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { DocIcon } from '../components/icons';
-import { Button, Card, ErrorState, LoadingState, Muted, Screen } from '../components/ui';
+import { Button, Card, ErrorState, LoadingState, Muted, Screen, SearchInput } from '../components/ui';
 import { colors } from '../theme/tokens';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { canAccess } from '../utils/roles';
@@ -15,13 +15,16 @@ export default function GRNListScreen() {
   const { user } = useAuth();
   const scrollPad = useTabScrollPadding(28);
   const canImport = canAccess(user?.role, 'grnImport');
+  const [q, setQ] = useState('');
+  const qRef = useRef(q);
+  qRef.current = q;
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const load = async () => {
+  const load = useCallback(async (query?: string) => {
     try {
-      const { data } = await grnApi.list();
+      const { data } = await grnApi.list({ q: (query ?? qRef.current) || undefined });
       setRows(data);
       setError('');
     } catch (e) {
@@ -29,17 +32,17 @@ export default function GRNListScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
       load();
-    }, [])
+    }, [load])
   );
 
-  if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} onRetry={load} />;
+  if (loading && !rows.length) return <LoadingState />;
+  if (error && !rows.length) return <ErrorState message={error} onRetry={() => load()} />;
 
   return (
     <Screen>
@@ -51,9 +54,21 @@ export default function GRNListScreen() {
             : 'View received goods. Import is limited to supervisors and admins.'}
         </Muted>
       </View>
+      <SearchInput
+        placeholder="Search GRN number, vendor, ref..."
+        value={q}
+        onChangeText={setQ}
+        onSubmitEditing={() => load(q)}
+        onClear={() => {
+          setQ('');
+          load('');
+        }}
+      />
+      <Button label="Search" variant="secondary" onPress={() => load(q)} />
       {canImport ? (
         <Button label="Import / Add Sample GRN" onPress={() => navigation.navigate('GRNImport')} />
       ) : null}
+      {error ? <Text style={{ color: colors.danger, marginBottom: 8 }}>{error}</Text> : null}
       <FlatList
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: scrollPad }}
