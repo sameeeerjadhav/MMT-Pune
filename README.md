@@ -2,6 +2,17 @@
 
 React Native (Expo) mobile app + Django REST Framework + PostgreSQL for airport-equipment warehouse operations.
 
+**Current focus:** development / demo (Phases 1–3 complete). **Deployment / VPS is deferred** until you approve Phase 4.
+
+| Phase | Status |
+|-------|--------|
+| 1 Architecture | Done |
+| 2 Backend + mobile core | Done |
+| 3 Demo polish | Done |
+| 4 Deploy / VPS | Deferred |
+
+See [docs/phase-status.md](docs/phase-status.md) and [docs/demo-guide.md](docs/demo-guide.md).
+
 ## Demo credentials (local development only)
 
 | User | Password | Role |
@@ -83,11 +94,14 @@ docker-compose.yml
 
 ## Documentation
 
+- [Phase status](docs/phase-status.md)
 - [Architecture](docs/architecture.md)
+- [Architecture plan](docs/architecture-plan.md)
 - [Database design](docs/database-design.md)
 - [API](docs/api-documentation.md)
 - [Demo guide](docs/demo-guide.md)
-- [Deployment](docs/deployment-guide.md)
+- [Full test report](docs/full-test-report.md)
+- [Deployment](docs/deployment-guide.md) (prep only — do not apply until approved)
 
 ## Important limitations
 

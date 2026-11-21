@@ -61,6 +61,26 @@ export function roleBlurb(role: RoleCode | undefined | null): string {
   }
 }
 
+/** Map tab route names to access modules (More is always allowed). */
+export const TAB_ACCESS: Record<string, AppModule | null> = {
+  Dashboard: 'dashboard',
+  Scanner: 'scanner',
+  Inventory: 'inventory',
+  Withdrawal: 'withdrawal',
+  GRN: 'grn',
+  Warehouse: 'warehouse',
+  Reports: 'reports',
+  Settings: 'settings',
+  More: null,
+};
+
+export function canAccessTab(role: RoleCode | undefined | null, tabName: string): boolean {
+  const module = TAB_ACCESS[tabName];
+  if (module === null) return true;
+  if (!module) return false;
+  return canAccess(role, module);
+}
+
 /** Primary bottom tabs — max 5, role-specific so each login feels different. */
 export function primaryTabsForRole(role: RoleCode | undefined | null): string[] {
   if (role === 'ADMIN') {

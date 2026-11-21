@@ -283,7 +283,7 @@ class GrnImportDuplicateTests(TestCase):
 
 
 class ConcurrentWithdrawSmokeTests(TestCase):
-    """Sequential smoke test approximating concurrent stock protection."""
+    """Sequential stock protection (parallel coverage lives in warehouses.tests)."""
 
     def setUp(self):
         role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})

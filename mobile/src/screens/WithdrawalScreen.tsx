@@ -22,23 +22,25 @@ export default function WithdrawalScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState('');
 
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
+    setHistoryError('');
     try {
       const { data } = await withdrawalApi.list();
       setHistory(Array.isArray(data) ? data : data.results || []);
-    } catch {
-      // list is secondary; ignore hard failure on main form
+    } catch (e) {
+      setHistoryError(getErrorMessage(e));
     } finally {
       setHistoryLoading(false);
     }
-  };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       setHistoryLoading(true);
       loadHistory();
-    }, [])
+    }, [loadHistory])
   );
 
   const validate = useCallback(
@@ -81,7 +83,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
       setBatchId('');
       validate('', paramUnitId, quantity);
     }
-  }, [paramBatchId, paramUnitId]);
+  }, [paramBatchId, paramUnitId, validate, quantity]);
 
   const confirm = async () => {
     setLoading(true);
@@ -163,12 +165,21 @@ export default function WithdrawalScreen({ route, navigation }: any) {
             label="Load BATCH-002 for FIFO demo"
             variant="secondary"
             onPress={async () => {
-              const inv = await inventoryApi.list({ q: 'BATCH-002' });
-              const batch = inv.data.batches?.[0];
-              if (batch) {
-                setBatchId(String(batch.id));
-                setUnitId('');
-                setQuantity('5');
+              setError('');
+              try {
+                const inv = await inventoryApi.list({ q: 'BATCH-002' });
+                const batch = inv.data.batches?.[0];
+                if (batch) {
+                  const id = String(batch.id);
+                  setBatchId(id);
+                  setUnitId('');
+                  setQuantity('5');
+                  await validate(id, '', '5');
+                } else {
+                  setError('BATCH-002 not found in seed data');
+                }
+              } catch (e) {
+                setError(getErrorMessage(e));
               }
             }}
           />
@@ -214,6 +225,18 @@ export default function WithdrawalScreen({ route, navigation }: any) {
           <Subtitle>Recent withdrawals</Subtitle>
           {historyLoading ? (
             <LoadingState />
+          ) : historyError ? (
+            <>
+              <Text style={{ color: colors.danger, marginBottom: 8 }}>{historyError}</Text>
+              <Button
+                label="Retry history"
+                variant="secondary"
+                onPress={() => {
+                  setHistoryLoading(true);
+                  loadHistory();
+                }}
+              />
+            </>
           ) : history.length === 0 ? (
             <Muted>No withdrawals yet</Muted>
           ) : (

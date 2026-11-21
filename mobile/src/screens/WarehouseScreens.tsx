@@ -154,22 +154,26 @@ export function RackDetailScreen({ route }: any) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
+  const load = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const [r, inv] = await Promise.all([warehouseApi.rack(id), warehouseApi.rackInventory(id)]);
+      setRack(r.data);
+      setInventory(inv.data);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      try {
-        const [r, inv] = await Promise.all([warehouseApi.rack(id), warehouseApi.rackInventory(id)]);
-        setRack(r.data);
-        setInventory(inv.data);
-      } catch (e) {
-        setError(getErrorMessage(e));
-      } finally {
-        setLoading(false);
-      }
-    })();
+    load();
   }, [id]);
 
   if (loading) return <LoadingState />;
-  if (error || !rack) return <ErrorState message={error || 'Not found'} />;
+  if (error || !rack) return <ErrorState message={error || 'Not found'} onRetry={load} />;
 
   return (
     <Screen>

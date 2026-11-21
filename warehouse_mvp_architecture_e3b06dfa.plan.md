@@ -171,13 +171,13 @@ Design tokens: light background, navy text, blue primary, green/orange/red seman
 
 ## 6. Demo development plan
 
-| Phase | Deliverables | Exit criteria |
+| Phase | Deliverables | Status / exit criteria |
 |---|---|---|
-| **1 Architecture** | This plan + ER + API + navigation | Approved |
-| **2A Backend gaps** | Code 128 labels, RBAC, transfer locking, tests, admin | Label PNG + FIFO tests green |
-| **2B Mobile gaps** | Warehouse UX, withdrawal list, readable reports, label preview | End-to-end Android demo |
-| **3 Demo polish** | Docs, AGENTS.md, deprecate Express plan | Client walkthrough ready |
-| **4 Deploy prep** | VPS docs, EAS/APK notes, backups | Docs ready; no auto-deploy |
+| **1 Architecture** | This plan + ER + API + navigation | **Done** |
+| **2A Backend gaps** | Code 128 labels, RBAC, transfer locking, tests, admin | **Done** |
+| **2B Mobile gaps** | Warehouse UX, withdrawal list, readable reports, label preview | **Done** |
+| **3 Demo polish** | Docs, AGENTS.md, role walkthrough, loading/empty states | **Done** (dev only) |
+| **4 Deploy / VPS** | VPS docs, EAS/APK, backups, live deploy | **Deferred** until approved |
 
 **Demo seed (must-have):** Steel Bolt BATCH-001 (older) + BATCH-002 (newer); partial withdraw; rack transfer; unit withdraw; shipment + assembly; 3 warehouses / 10 racks / sample GRNs.
 

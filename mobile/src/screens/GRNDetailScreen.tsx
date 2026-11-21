@@ -12,10 +12,13 @@ export default function GRNDetailScreen({ route }: any) {
   const { id } = route.params;
   const [grn, setGrn] = useState<any>(null);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState('');
 
   const load = async () => {
+    setError('');
+    setLoading(true);
     try {
       const { data } = await grnApi.detail(id);
       setGrn(data);
@@ -59,14 +62,21 @@ export default function GRNDetailScreen({ route }: any) {
             label="Generate missing barcodes"
             variant="secondary"
             onPress={async () => {
-              const { data } = await grnApi.generateBarcodes(id);
-              setMsg(`Created ${data.created} barcodes`);
-              setGrn(data.grn);
+              setMsg('');
+              setActionError('');
+              try {
+                const { data } = await grnApi.generateBarcodes(id);
+                setMsg(`Created ${data.created} barcodes`);
+                setGrn(data.grn);
+              } catch (e) {
+                setActionError(getErrorMessage(e));
+              }
             }}
           />
         ) : (
           <Muted>Barcode generation is limited to supervisors and admins.</Muted>
         )}
+        {actionError ? <Text style={{ color: '#B91C1C', marginTop: 8 }}>{actionError}</Text> : null}
         {msg ? <Muted>{msg}</Muted> : null}
       </ScrollView>
     </Screen>

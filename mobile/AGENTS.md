@@ -9,22 +9,27 @@ Use **React Navigation** (`@react-navigation/native`, native-stack, bottom-tabs)
 - Entry: `index.ts` → `App.tsx` → `src/navigation/RootNavigator.tsx`
 - Screens live under `src/screens/`
 - Shared UI: `src/components/`, API: `src/api/`, hardware HAL: `src/services/hardware/`
+- Role helpers: `src/utils/roles.ts` (tabs and module gates differ per login)
 
-Do **not** migrate to Expo Router unless explicitly requested. The master project prompt and current app use React Navigation.
+Do **not** migrate to Expo Router unless explicitly requested.
 
 ## Commands
 
 ```bash
 npx expo install <package>   # prefer over npm add for native modules
-npx expo start
+npx expo start               # phone via Expo Go
+npx expo start --web         # optional PC browser demo
 npx tsc --noEmit
 npx expo-doctor
 ```
 
-## API
+## API & auth storage
 
-- Axios client in `src/api/client.ts` (JWT in SecureStore, auto refresh)
-- Endpoints in `src/api/endpoints.ts`
+- Axios client: `src/api/client.ts` (JWT refresh)
+- Endpoints: `src/api/endpoints.ts`
+- Storage helper: `src/utils/secureStorage.ts`
+  - Device: Expo SecureStore
+  - Web: `localStorage` (PC testing only)
 - Screens must call live backend APIs — no permanent dummy inventory data
 
 ## Hardware

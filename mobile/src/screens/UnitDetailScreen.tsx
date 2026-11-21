@@ -11,22 +11,26 @@ export default function UnitDetailScreen({ route, navigation }: any) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
+  const load = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const [u, h] = await Promise.all([inventoryApi.unit(id), inventoryApi.history('unit', id)]);
+      setUnit(u.data);
+      setHistory(h.data);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      try {
-        const [u, h] = await Promise.all([inventoryApi.unit(id), inventoryApi.history('unit', id)]);
-        setUnit(u.data);
-        setHistory(h.data);
-      } catch (e) {
-        setError(getErrorMessage(e));
-      } finally {
-        setLoading(false);
-      }
-    })();
+    load();
   }, [id]);
 
   if (loading) return <LoadingState />;
-  if (error || !unit) return <ErrorState message={error || 'Not found'} />;
+  if (error || !unit) return <ErrorState message={error || 'Not found'} onRetry={load} />;
 
   const alloc = (unit.allocations || []).find((a: any) => a.is_active && a.allocation_type === 'ACTUAL');
 

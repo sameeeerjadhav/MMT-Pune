@@ -2,11 +2,12 @@
 
 ## Stack
 
-- Mobile: Expo + React Native + TypeScript + React Navigation + Axios + SecureStore
+- Mobile: Expo + React Native + TypeScript + React Navigation + Axios
+- Token storage: SecureStore on device; `localStorage` fallback on web (PC demo)
 - Backend: Django + Django REST Framework + SimpleJWT + drf-spectacular
-- Database: PostgreSQL (source of truth); optional SQLite via `DJANGO_USE_SQLITE=1` for local tests only
-- Local DB: Docker Compose (`docker-compose.yml`)
-- Production target: Linux VPS + Nginx + Gunicorn + HTTPS
+- Database: PostgreSQL (source of truth); optional SQLite via `DJANGO_USE_SQLITE=1` for unit tests only
+- Local DB: Docker Compose or native PostgreSQL
+- Production target (later): Linux VPS + Nginx + Gunicorn + HTTPS — **not started in Phase 3**
 
 ## Boundaries
 
@@ -22,12 +23,13 @@ Validated on withdrawal validate/create endpoints. Older eligible bulk batches o
 
 ## Roles
 
-- `ADMIN`
-- `SUPERVISOR`
-- `WAREHOUSE_EMPLOYEE`
+- `ADMIN` — full modules including reports and import
+- `SUPERVISOR` — operations, GRN import, racks, reports, FIFO override
+- `WAREHOUSE_EMPLOYEE` — scan, allocate, transfer, withdraw; no import/reports/override
 
-Mutations (allocate, transfer, withdraw, barcode generate/print, GRN create/import) require warehouse staff or higher. FIFO override requires supervisor/admin.
+Reports APIs require supervisor/admin. FIFO override is enforced in withdrawal services.
 
-## Obsolete plans
+## Plan documents
 
-Ignore `warehouse_mvp_architecture_e3b06dfa.plan.md` — it incorrectly described Express/Prisma/MySQL and is superseded by this document and the approved Phase 1 architecture plan.
+- Readable plan: [`architecture-plan.md`](architecture-plan.md)
+- Cursor plan file: [`../warehouse_mvp_architecture_e3b06dfa.plan.md`](../warehouse_mvp_architecture_e3b06dfa.plan.md) (Django stack; earlier Express/MySQL draft was rejected)

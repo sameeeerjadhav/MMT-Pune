@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Sum
 
 from barcodes.services import create_barcode
 from config.exceptions import ApiError
@@ -84,6 +85,22 @@ def allocate_stock(*, position_id, user, batch_id=None, unit_id=None, quantity=N
                     quantity=qty,
                 )
             else:
+                already = (
+                    StockAllocation.objects.filter(
+                        batch=batch, allocation_type='ACTUAL', is_active=True
+                    ).aggregate(total=Sum('quantity'))['total']
+                    or Decimal('0')
+                )
+                if already + qty > batch.available_qty:
+                    raise ApiError(
+                        'INVALID_QTY',
+                        'Allocation would exceed available quantity across locations',
+                        details={
+                            'available': str(batch.available_qty),
+                            'already_allocated': str(already),
+                            'requested': str(qty),
+                        },
+                    )
                 allocation = _merge_or_create_batch_allocation(
                     batch=batch, position=position, qty=qty
                 )
@@ -136,16 +153,6 @@ def transfer_stock(*, from_position_id, to_position_id, user, batch_id=None, uni
     if from_pos.id == to_pos.id:
         raise ApiError('VALIDATION_ERROR', 'Source and destination must differ')
 
-    transfer = RackTransfer.objects.create(
-        from_position=from_pos,
-        to_position=to_pos,
-        batch_id=batch_id,
-        unit_id=unit_id,
-        quantity=quantity,
-        reason=reason,
-        user=user,
-    )
-
     if batch_id:
         batch = InventoryBatch.objects.select_for_update().get(pk=batch_id)
         qty = Decimal(str(quantity or 0))
@@ -170,6 +177,17 @@ def transfer_stock(*, from_position_id, to_position_id, user, batch_id=None, uni
                 'Transfer quantity exceeds quantity at source location',
                 details={'available': str(available_at_source)},
             )
+
+        transfer = RackTransfer.objects.create(
+            from_position=from_pos,
+            to_position=to_pos,
+            batch_id=batch_id,
+            unit_id=unit_id,
+            quantity=qty,
+            reason=reason,
+            user=user,
+        )
+
         remaining = available_at_source - qty
         if remaining > 0:
             source_alloc.quantity = remaining
@@ -205,6 +223,17 @@ def transfer_stock(*, from_position_id, to_position_id, user, batch_id=None, uni
         )
         if not source_alloc:
             raise ApiError('NOT_FOUND', 'No active allocation at source position', status_code=404)
+
+        transfer = RackTransfer.objects.create(
+            from_position=from_pos,
+            to_position=to_pos,
+            batch_id=batch_id,
+            unit_id=unit_id,
+            quantity=Decimal('1'),
+            reason=reason,
+            user=user,
+        )
+
         source_alloc.is_active = False
         source_alloc.save(update_fields=['is_active', 'updated_at'])
         StockAllocation.objects.filter(

@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { reportsApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
-import { Button, Card, LoadingState, Muted, Screen, Subtitle, Title } from '../components/ui';
+import { useAuth } from '../context/AuthContext';
+import { Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle, Title } from '../components/ui';
 import { colors } from '../theme/tokens';
+import { canAccess } from '../utils/roles';
 
 function Row({ children }: { children: React.ReactNode }) {
   return (
@@ -125,10 +127,15 @@ function renderReport(title: string, data: any) {
 }
 
 export default function ReportsScreen() {
+  const { user } = useAuth();
   const [data, setData] = useState<any>(null);
   const [title, setTitle] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  if (!canAccess(user?.role, 'reports')) {
+    return <ErrorState message="Reports are limited to supervisors and admins." />;
+  }
 
   const run = async (name: string, fn: () => Promise<any>) => {
     setError('');
