@@ -105,11 +105,14 @@ In `mobile/app.json`:
 
 ```json
 "extra": {
-  "apiUrl": "https://mmt.labxco.cloud/api"
+  "apiUrl": "https://mmt.labxco.cloud/api",
+  "preferRemoteApiInDev": true
 }
 ```
 
-Rebuild the APK (EAS or local). Expo Go against production HTTPS also works if `apiUrl` is set.
+- Release APK always uses `apiUrl`.
+- Expo Go uses the VPS when `preferRemoteApiInDev` is `true`.
+- For local `runserver`, set `preferRemoteApiInDev` to `false` (then Expo uses your LAN IP `:8000`).
 
 ---
 

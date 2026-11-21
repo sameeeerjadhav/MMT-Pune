@@ -10,7 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { Button, Input, Muted, Title } from '../components/ui';
-import { getErrorMessage } from '../api/client';
+import { getErrorMessage, SHOW_DEMO_TOOLS } from '../api/client';
 import { colors, radius, shadow } from '../theme/tokens';
 import { roleBlurb, roleLabel } from '../utils/roles';
 
@@ -114,43 +114,47 @@ export default function LoginScreen() {
               <Button label="Continue" onPress={onSubmit} loading={loading} />
             </View>
 
-            <Text
-              style={{
-                marginTop: 22,
-                marginBottom: 10,
-                color: colors.muted,
-                fontSize: 12,
-                fontWeight: '700',
-                letterSpacing: 0.8,
-                textTransform: 'uppercase',
-              }}
-            >
-              Demo roles
-            </Text>
-            {DEMO_USERS.map((u) => (
-              <Pressable
-                key={u.username}
-                onPress={() => {
-                  setUsername(u.username);
-                  setPassword('Demo@12345');
-                  setError('');
-                }}
-                style={({ pressed }) => ({
-                  backgroundColor: username === u.username ? colors.primarySoft : colors.surface,
-                  borderRadius: radius.md,
-                  padding: 14,
-                  marginBottom: 10,
-                  opacity: pressed ? 0.9 : 1,
-                  borderWidth: 1,
-                  borderColor: username === u.username ? colors.primary : colors.borderSoft,
-                })}
-              >
-                <Text style={{ fontWeight: '800', color: colors.navy }}>{roleLabel(u.role)}</Text>
-                <Text style={{ color: colors.muted, marginTop: 4, fontSize: 13, lineHeight: 18 }}>
-                  {u.username} · {roleBlurb(u.role)}
+            {SHOW_DEMO_TOOLS ? (
+              <>
+                <Text
+                  style={{
+                    marginTop: 22,
+                    marginBottom: 10,
+                    color: colors.muted,
+                    fontSize: 12,
+                    fontWeight: '700',
+                    letterSpacing: 0.8,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Demo roles
                 </Text>
-              </Pressable>
-            ))}
+                {DEMO_USERS.map((u) => (
+                  <Pressable
+                    key={u.username}
+                    onPress={() => {
+                      setUsername(u.username);
+                      setPassword('Demo@12345');
+                      setError('');
+                    }}
+                    style={({ pressed }) => ({
+                      backgroundColor: username === u.username ? colors.primarySoft : colors.surface,
+                      borderRadius: radius.md,
+                      padding: 14,
+                      marginBottom: 10,
+                      opacity: pressed ? 0.9 : 1,
+                      borderWidth: 1,
+                      borderColor: username === u.username ? colors.primary : colors.borderSoft,
+                    })}
+                  >
+                    <Text style={{ fontWeight: '800', color: colors.navy }}>{roleLabel(u.role)}</Text>
+                    <Text style={{ color: colors.muted, marginTop: 4, fontSize: 13, lineHeight: 18 }}>
+                      {u.username} · {roleBlurb(u.role)}
+                    </Text>
+                  </Pressable>
+                ))}
+              </>
+            ) : null}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

@@ -1,0 +1,13 @@
+---
+description: Commit attribution — never use Cursor as author or co-author
+alwaysApply: true
+---
+
+# Git attribution
+
+- **Never** set commit author, committer, or `Co-authored-by` to Cursor / cursoragent / `cursoragent@cursor.com`.
+- When creating commits in this repo, always use Durgesh’s identity via environment variables for that commit only (do **not** change `git config`):
+  - Name: `Durgesh Rajendra Shewale`
+  - Email: `135796411+DurgeshShewale29@users.noreply.github.com`
+- Allowed repository contributors: **DurgeshShewale29** and **sameeeerjadhav** only.
+- Do not add `Co-authored-by: Cursor` (or any Cursor trailer) to commit messages.

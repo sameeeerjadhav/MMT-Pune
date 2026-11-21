@@ -1,8 +1,8 @@
 from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, re_path
 from django.views.generic import RedirectView
+from django.views.static import serve
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from accounts.views import HealthView, LoginView, LogoutView, ProfileView, RefreshView
@@ -112,5 +112,8 @@ urlpatterns = [
     path('api/reports/fifo/', FIFOReportView.as_view()),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Serve uploaded media in both DEBUG and production (Dokploy has no separate media CDN).
+# django.conf.urls.static.static() is a no-op when DEBUG=False, so use serve explicitly.
+urlpatterns += [
+    re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
+]

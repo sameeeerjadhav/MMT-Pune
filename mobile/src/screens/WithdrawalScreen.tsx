@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { inventoryApi, withdrawalApi } from '../api/endpoints';
-import { getErrorMessage } from '../api/client';
+import { getErrorMessage, SHOW_DEMO_TOOLS } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { OutIcon } from '../components/icons';
 import {
@@ -243,29 +243,31 @@ export default function WithdrawalScreen({ route, navigation }: any) {
           ) : null}
 
           <Button label="Validate FIFO / stock" variant="secondary" onPress={() => validate()} />
-          <Button
-            label="Load BATCH-002 for FIFO demo"
-            variant="secondary"
-            onPress={async () => {
-              setError('');
-              try {
-                const inv = await inventoryApi.list({ q: 'BATCH-002' });
-                const batch = inv.data.batches?.[0];
-                if (batch) {
-                  const id = String(batch.id);
-                  syncedParams.current = '';
-                  setBatchId(id);
-                  setUnitId('');
-                  setQuantity('5');
-                  await validate(id, '', '5');
-                } else {
-                  setError('BATCH-002 not found in seed data');
+          {SHOW_DEMO_TOOLS ? (
+            <Button
+              label="Load BATCH-002 for FIFO demo"
+              variant="secondary"
+              onPress={async () => {
+                setError('');
+                try {
+                  const inv = await inventoryApi.list({ q: 'BATCH-002' });
+                  const batch = inv.data.batches?.[0];
+                  if (batch) {
+                    const id = String(batch.id);
+                    syncedParams.current = '';
+                    setBatchId(id);
+                    setUnitId('');
+                    setQuantity('5');
+                    await validate(id, '', '5');
+                  } else {
+                    setError('BATCH-002 not found in seed data');
+                  }
+                } catch (e) {
+                  setError(getErrorMessage(e));
                 }
-              } catch (e) {
-                setError(getErrorMessage(e));
-              }
-            }}
-          />
+              }}
+            />
+          ) : null}
         </Card>
 
         {validation ? (

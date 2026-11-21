@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { inventoryApi } from '../api/endpoints';
-import { getErrorMessage } from '../api/client';
+import { getErrorMessage, SHOW_DEMO_TOOLS } from '../api/client';
 import { CameraIcon, ScanHeroIcon } from '../components/icons';
 import { Badge, Button, Card, FifoAlert, Input, Muted, Screen, Subtitle } from '../components/ui';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
@@ -87,30 +87,32 @@ export default function ScannerScreen({ navigation }: any) {
           autoCapitalize="characters"
         />
         <Button label="Lookup barcode" onPress={() => lookup(manual, 'manual')} loading={loading} />
-        <Button
-          label="Simulate BATCH-002 barcode"
-          variant="secondary"
-          loading={loading}
-          onPress={async () => {
-            if (inFlight.current) return;
-            setLoading(true);
-            setError('');
-            try {
-              const inv = await inventoryApi.list({ q: 'BATCH-002' });
-              const batch = inv.data.batches?.[0];
-              if (batch?.barcode_value) {
-                setManual(batch.barcode_value);
-                await lookup(batch.barcode_value, 'simulated');
-              } else {
-                setError('BATCH-002 not found in seed data');
+        {SHOW_DEMO_TOOLS ? (
+          <Button
+            label="Simulate BATCH-002 barcode"
+            variant="secondary"
+            loading={loading}
+            onPress={async () => {
+              if (inFlight.current) return;
+              setLoading(true);
+              setError('');
+              try {
+                const inv = await inventoryApi.list({ q: 'BATCH-002' });
+                const batch = inv.data.batches?.[0];
+                if (batch?.barcode_value) {
+                  setManual(batch.barcode_value);
+                  await lookup(batch.barcode_value, 'simulated');
+                } else {
+                  setError('BATCH-002 not found in seed data');
+                  setLoading(false);
+                }
+              } catch (e) {
+                setError(getErrorMessage(e));
                 setLoading(false);
               }
-            } catch (e) {
-              setError(getErrorMessage(e));
-              setLoading(false);
-            }
-          }}
-        />
+            }}
+          />
+        ) : null}
 
         {error ? <Text style={{ color: colors.danger, marginVertical: 8 }}>{error}</Text> : null}
 

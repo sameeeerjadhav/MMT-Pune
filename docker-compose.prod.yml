@@ -42,9 +42,9 @@ services:
     volumes:
       - warehouse_media:/app/media
       - warehouse_static:/app/staticfiles
-    # Dokploy Traefik will publish this; expose for local test if needed
-    ports:
-      - "8000:8000"
+    # Reachable on dokploy-network only (Traefik). Do not publish 8000 on the host.
+    expose:
+      - "8000"
     networks:
       - dokploy-network
 

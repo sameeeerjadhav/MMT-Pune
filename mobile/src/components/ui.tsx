@@ -9,7 +9,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { CommonActions, useNavigation } from '@react-navigation/native';
 import { colors, radius, shadow, spacing } from '../theme/tokens';
 
 export function Screen({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
@@ -471,10 +471,16 @@ export function FifoAlert({ message, older }: { message: string; older?: any }) 
   const openOlderStock = () => {
     if (!older?.id) return;
     const isUnit = older.kind === 'UNIT';
-    navigation.navigate('Inventory', {
-      screen: isUnit ? 'UnitDetail' : 'BatchDetail',
-      params: { id: older.id },
-    });
+    // Dispatch at root so the Inventory tab is selected even when opened from Withdrawal/Scanner.
+    navigation.dispatch(
+      CommonActions.navigate({
+        name: 'Inventory',
+        params: {
+          screen: isUnit ? 'UnitDetail' : 'BatchDetail',
+          params: { id: older.id },
+        },
+      })
+    );
   };
 
   return (

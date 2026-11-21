@@ -42,3 +42,19 @@ class AuthProfileTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.data['role'], 'WAREHOUSE_EMPLOYEE')
         self.assertEqual(res.data['username'], 'auth_emp')
+
+    def test_createsuperuser_assigns_admin_role(self):
+        admin = User.objects.create_superuser(username='su_admin', password='pass12345')
+        self.assertEqual(admin.role_code, 'ADMIN')
+        self.assertTrue(admin.has_role('ADMIN'))
+        self.assertTrue(admin.has_role('ADMIN', 'SUPERVISOR'))
+
+    def test_superuser_without_role_fk_still_reports_admin(self):
+        # Mimic older createsuperuser that only set is_superuser.
+        orphan = User.objects.create_user(username='orphan_su', password='pass12345')
+        orphan.is_superuser = True
+        orphan.is_staff = True
+        orphan.role = None
+        orphan.save(update_fields=['is_superuser', 'is_staff', 'role'])
+        self.assertEqual(orphan.role_code, 'ADMIN')
+        self.assertTrue(orphan.has_role('ADMIN'))

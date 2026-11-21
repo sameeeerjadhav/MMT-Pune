@@ -2,12 +2,30 @@ import axios from 'axios';
 import Constants from 'expo-constants';
 import * as storage from '../utils/secureStorage';
 
+type ExtraConfig = {
+  apiUrl?: string;
+  /** When true, Expo Go (__DEV__) uses apiUrl instead of the LAN debugger host. */
+  preferRemoteApiInDev?: boolean;
+};
+
 const hostUri = Constants.expoConfig?.hostUri;
 const debuggerHost = hostUri?.split(':')[0];
+const extra = Constants.expoConfig?.extra as ExtraConfig | undefined;
+const configuredApiUrl = (extra?.apiUrl || '').trim();
+const localApiUrl = debuggerHost
+  ? `http://${debuggerHost}:8000/api`
+  : 'http://127.0.0.1:8000/api';
 
+// Release builds always use configured production URL.
+// In Expo Go, default to LAN so local runserver keeps working; set
+// extra.preferRemoteApiInDev=true to hit the VPS while developing.
 export const API_BASE_URL =
-  (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl ||
-  (debuggerHost ? `http://${debuggerHost}:8000/api` : 'http://127.0.0.1:8000/api');
+  __DEV__ && !extra?.preferRemoteApiInDev
+    ? localApiUrl
+    : configuredApiUrl || localApiUrl;
+
+/** Seed/demo UI only when talking to a local backend in Expo Go. */
+export const SHOW_DEMO_TOOLS = __DEV__ && API_BASE_URL === localApiUrl;
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
