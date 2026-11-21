@@ -10,7 +10,6 @@ import {
   Card,
   ErrorState,
   FormActions,
-  InactiveDot,
   Input,
   LoadingState,
   ManageActionBar,
@@ -300,20 +299,15 @@ export default function ItemMasterScreen() {
           return (
             <Card>
               <Pressable onPress={() => (canManage ? openEdit(item) : undefined)}>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                  <InactiveDot active={active} size={9} />
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <Text style={{ fontWeight: '800', fontSize: 15, color: colors.navy }}>{item.item_code}</Text>
-                      {!active ? <Badge label="Inactive" tone="danger" /> : null}
-                      <Badge label={item.inventory_type} tone="primary" />
-                    </View>
-                    <Text style={{ color: colors.text, fontWeight: '600', marginTop: 2 }}>{item.name}</Text>
-                    <Muted>
-                      {item.category_name || item.category_code || 'No category'} · {item.uom}
-                    </Muted>
-                  </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <Text style={{ fontWeight: '800', fontSize: 15, color: colors.navy }}>{item.item_code}</Text>
+                  {!active ? <Badge label="Inactive" tone="danger" /> : null}
+                  <Badge label={item.inventory_type} tone="primary" />
                 </View>
+                <Text style={{ color: colors.text, fontWeight: '600', marginTop: 2 }}>{item.name}</Text>
+                <Muted>
+                  {item.category_name || item.category_code || 'No category'} · {item.uom}
+                </Muted>
               </Pressable>
               {canManage ? (
                 <ManageActionBar

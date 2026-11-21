@@ -1,18 +1,19 @@
 export const colors = {
-  // Cool industrial slate — warehouse ops, not generic SaaS purple
+  // Cool industrial blue — warehouse ops brand
   background: '#E8EEF4',
   backgroundAlt: '#DCE4ED',
   surface: '#FFFFFF',
   surfaceMuted: '#F3F6FA',
   navy: '#0A1C2E',
   text: '#122031',
-  // Darkened for WCAG-friendly helper / tab labels on light surfaces
   muted: '#4D5D6E',
-  primary: '#0A6561',
-  primaryDark: '#074B48',
-  primarySoft: '#D2EBE9',
+  // Brand: blue (was teal/green)
+  primary: '#1B5F9E',
+  primaryDark: '#134676',
+  primarySoft: '#D6E6F5',
   accent: '#B5521F',
   accentSoft: '#F6E6DB',
+  // Semantic success stays green
   success: '#178050',
   successSoft: '#E1F4EA',
   warning: '#B56A12',

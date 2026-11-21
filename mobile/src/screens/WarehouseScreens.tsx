@@ -11,13 +11,15 @@ import {
   Card,
   ErrorState,
   FormActions,
-  InactiveDot,
   Input,
   LoadingState,
   ManageActionBar,
   Muted,
   Screen,
   SearchInput,
+  SelectionSummary,
+  SelectList,
+  SelectRow,
   Subtitle,
   TextAction,
 } from '../components/ui';
@@ -355,7 +357,6 @@ export function WarehouseListScreen({ navigation }: any) {
                   backgroundColor: selected ? colors.primarySoft : 'transparent',
                 }}
               >
-                <InactiveDot active={active} size={9} />
                 <View style={{ flex: 1 }}>
                   <Text
                     style={{
@@ -507,7 +508,6 @@ export function WarehouseListScreen({ navigation }: any) {
             <Card>
               <Pressable onPress={() => navigation.navigate('RackMap', { id: item.id })}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                  <InactiveDot active={active} size={9} />
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <Text style={{ fontWeight: '800', fontSize: 16, color: colors.navy }}>{item.code}</Text>
@@ -662,12 +662,24 @@ export function AllocateScreen({ route }: any) {
   }, [loadPickers]);
 
   const selectedBatch = batches.find((b) => b.id === batchId);
+  const selectedUnit = units.find((u) => u.id === unitId);
+  const stockLabel =
+    mode === 'batch'
+      ? selectedBatch
+        ? `Batch: ${selectedBatch.batch_code}`
+        : ''
+      : selectedUnit
+        ? `Unit: ${selectedUnit.unit_code}`
+        : '';
+  const destLabel = positionId && positionLabel ? `Destination: ${positionLabel}` : '';
 
   return (
     <Screen>
-      <ScrollView>
+      <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
         <Muted>Assign stock to a rack position (actual location).</Muted>
         {positionLabel && positionId ? <Muted>Preselected from map: {positionLabel}</Muted> : null}
+
+        <SelectionSummary lines={[stockLabel, destLabel]} />
 
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
           <View style={{ flex: 1 }}>
@@ -706,33 +718,34 @@ export function AllocateScreen({ route }: any) {
             }}
           />
           <Button label="Search stock" variant="secondary" onPress={() => loadPickers()} />
-          {mode === 'batch'
-            ? batches.slice(0, 30).map((b) => (
-                <Pressable key={b.id} onPress={() => setBatchId(b.id)}>
-                  <Text
-                    style={{
-                      paddingVertical: 6,
-                      fontWeight: batchId === b.id ? '700' : '400',
-                      color: batchId === b.id ? colors.primary : colors.text,
-                    }}
-                  >
-                    {b.batch_code} — avail {b.available_qty}
-                  </Text>
-                </Pressable>
-              ))
-            : units.slice(0, 30).map((u) => (
-                <Pressable key={u.id} onPress={() => setUnitId(u.id)}>
-                  <Text
-                    style={{
-                      paddingVertical: 6,
-                      fontWeight: unitId === u.id ? '700' : '400',
-                      color: unitId === u.id ? colors.primary : colors.text,
-                    }}
-                  >
-                    {u.unit_code} — {u.item_name || u.item?.name || 'Item'}
-                  </Text>
-                </Pressable>
+          <Muted>
+            {mode === 'batch' ? `${batches.length} batches` : `${units.length} units`} · scroll inside box
+          </Muted>
+          {mode === 'batch' ? (
+            <SelectList maxHeight={200} count={batches.length} emptyLabel="No batches found">
+              {batches.slice(0, 50).map((b) => (
+                <SelectRow
+                  key={b.id}
+                  label={b.batch_code}
+                  subtitle={`Available ${b.available_qty}`}
+                  selected={batchId === b.id}
+                  onPress={() => setBatchId(b.id)}
+                />
               ))}
+            </SelectList>
+          ) : (
+            <SelectList maxHeight={200} count={units.length} emptyLabel="No units found">
+              {units.slice(0, 50).map((u) => (
+                <SelectRow
+                  key={u.id}
+                  label={u.unit_code}
+                  subtitle={u.item_name || u.item?.name || 'Item'}
+                  selected={unitId === u.id}
+                  onPress={() => setUnitId(u.id)}
+                />
+              ))}
+            </SelectList>
+          )}
         </Card>
 
         <Card>
@@ -748,25 +761,20 @@ export function AllocateScreen({ route }: any) {
             }}
           />
           <Button label="Search locations" variant="secondary" onPress={() => loadPickers()} />
-          {locations.slice(0, 40).map((l) => (
-            <Pressable
-              key={l.id}
-              onPress={() => {
-                setPositionId(l.id);
-                setPositionLabel(l.label);
-              }}
-            >
-              <Text
-                style={{
-                  paddingVertical: 6,
-                  fontWeight: positionId === l.id ? '700' : '400',
-                  color: positionId === l.id ? colors.primary : colors.text,
+          <Muted>{locations.length} locations · scroll inside box</Muted>
+          <SelectList maxHeight={220} count={locations.length} emptyLabel="No locations found">
+            {locations.slice(0, 80).map((l) => (
+              <SelectRow
+                key={l.id}
+                label={l.label}
+                selected={positionId === l.id}
+                onPress={() => {
+                  setPositionId(l.id);
+                  setPositionLabel(l.label);
                 }}
-              >
-                {l.label}
-              </Text>
-            </Pressable>
-          ))}
+              />
+            ))}
+          </SelectList>
         </Card>
 
         {mode === 'batch' ? (
@@ -888,13 +896,27 @@ export function TransferScreen({ route }: any) {
   }, [loadPickers]);
 
   const mode: 'batch' | 'unit' = unitId ? 'unit' : 'batch';
+  const selectedBatch = batches.find((b) => b.id === batchId);
+  const selectedUnit = units.find((u) => u.id === unitId);
+  const fromLabel = locations.find((l) => l.id === fromId)?.label;
+  const toLabel = locations.find((l) => l.id === toId)?.label;
 
   return (
     <Screen>
-      <ScrollView>
+      <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
         <Muted>Move stock between positions. Source must have active stock.</Muted>
-        {fromId ? <Muted>From position preselected from rack map (#{fromId}).</Muted> : null}
-        {toId ? <Muted>To position preselected from rack map (#{toId}).</Muted> : null}
+
+        <SelectionSummary
+          lines={[
+            selectedBatch
+              ? `Stock: ${selectedBatch.batch_code}`
+              : selectedUnit
+                ? `Stock: ${selectedUnit.unit_code}`
+                : '',
+            fromId ? `From: ${fromLabel || `#${fromId}`}` : '',
+            toId ? `To: ${toLabel || `#${toId}`}` : '',
+          ]}
+        />
 
         <Card>
           <Subtitle>Stock to move</Subtitle>
@@ -909,48 +931,37 @@ export function TransferScreen({ route }: any) {
             }}
           />
           <Button label="Search stock" variant="secondary" onPress={() => loadPickers()} />
-          <Text style={{ fontWeight: '700', marginTop: 8, marginBottom: 4 }}>Batches</Text>
-          {batches.slice(0, 20).map((b) => (
-            <Pressable
-              key={`b-${b.id}`}
-              onPress={() => {
-                setBatchId(b.id);
-                setUnitId(null);
-              }}
-            >
-              <Text
-                style={{
-                  paddingVertical: 6,
-                  fontWeight: batchId === b.id ? '700' : '400',
-                  color: batchId === b.id ? colors.primary : colors.text,
+          <Muted>Batches</Muted>
+          <SelectList maxHeight={160} count={batches.length} emptyLabel="No batches found">
+            {batches.slice(0, 40).map((b) => (
+              <SelectRow
+                key={`b-${b.id}`}
+                label={b.batch_code}
+                subtitle={`Avail ${b.available_qty}`}
+                selected={batchId === b.id}
+                onPress={() => {
+                  setBatchId(b.id);
+                  setUnitId(null);
                 }}
-              >
-                {b.batch_code} (id {b.id})
-              </Text>
-            </Pressable>
-          ))}
-          <Text style={{ fontWeight: '700', marginTop: 10, marginBottom: 4 }}>Units</Text>
-          {units.slice(0, 20).map((u) => (
-            <Pressable
-              key={`u-${u.id}`}
-              onPress={() => {
-                setUnitId(u.id);
-                setBatchId(null);
-                setQty('1');
-              }}
-            >
-              <Text
-                style={{
-                  paddingVertical: 6,
-                  fontWeight: unitId === u.id ? '700' : '400',
-                  color: unitId === u.id ? colors.primary : colors.text,
+              />
+            ))}
+          </SelectList>
+          <Muted>Units</Muted>
+          <SelectList maxHeight={160} count={units.length} emptyLabel="No units found">
+            {units.slice(0, 40).map((u) => (
+              <SelectRow
+                key={`u-${u.id}`}
+                label={u.unit_code}
+                subtitle={u.item_name || u.item?.name || 'Item'}
+                selected={unitId === u.id}
+                onPress={() => {
+                  setUnitId(u.id);
+                  setBatchId(null);
+                  setQty('1');
                 }}
-              >
-                {u.unit_code} (id {u.id})
-              </Text>
-            </Pressable>
-          ))}
-          {!batches.length && !units.length ? <Muted>No inventory loaded.</Muted> : null}
+              />
+            ))}
+          </SelectList>
         </Card>
 
         <Card>
@@ -966,27 +977,27 @@ export function TransferScreen({ route }: any) {
             }}
           />
           <Button label="Search locations" variant="secondary" onPress={() => loadPickers()} />
-          {locations.slice(0, 40).map((l) => (
-            <View
-              key={l.id}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 8,
-                marginBottom: 8,
-                flexWrap: 'wrap',
-              }}
-            >
-              <Text style={{ flex: 1, color: colors.text }}>
-                #{l.id}: {l.label}
-              </Text>
-              <TextAction label="From" onPress={() => setFromId(l.id)} />
-              <Text style={{ color: colors.border }}>·</Text>
-              <TextAction label="To" onPress={() => setToId(l.id)} tone="muted" />
-            </View>
-          ))}
+          <Muted>{locations.length} locations · tap From or To on a row</Muted>
+          <SelectList maxHeight={220} count={locations.length} emptyLabel="No locations found">
+            {locations.slice(0, 80).map((l) => (
+              <SelectRow
+                key={l.id}
+                label={l.label}
+                subtitle={fromId === l.id ? 'FROM' : toId === l.id ? 'TO' : undefined}
+                selected={fromId === l.id || toId === l.id}
+                onPress={() => {}}
+                trailing={
+                  <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                    <TextAction label="From" onPress={() => setFromId(l.id)} />
+                    <Text style={{ color: colors.border }}>·</Text>
+                    <TextAction label="To" onPress={() => setToId(l.id)} tone="muted" />
+                  </View>
+                }
+              />
+            ))}
+          </SelectList>
           <Muted>
-            From: {fromId ?? '—'} · To: {toId ?? '—'}
+            From: {fromLabel || fromId || '—'} · To: {toLabel || toId || '—'}
           </Muted>
         </Card>
 
