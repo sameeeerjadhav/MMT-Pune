@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from django.db import transaction
 
-from barcodes.services import create_barcode, label_payload
+from barcodes.services import create_barcode
 from config.exceptions import ApiError
 from inventory.models import InventoryBatch, InventoryTransaction, InventoryUnit, StockAllocation
 from warehouses.models import Rack, RackPosition, RackTransfer, Shelf, Warehouse
@@ -33,6 +33,30 @@ def create_rack(*, warehouse_id, code, name, shelves=None):
     return rack
 
 
+def _merge_or_create_batch_allocation(*, batch, position, qty: Decimal):
+    """Keep at most one active ACTUAL allocation per batch+position; merge quantities."""
+    existing = (
+        StockAllocation.objects.select_for_update()
+        .filter(
+            batch=batch,
+            position=position,
+            allocation_type='ACTUAL',
+            is_active=True,
+        )
+        .first()
+    )
+    if existing:
+        existing.quantity = (existing.quantity or Decimal('0')) + qty
+        existing.save(update_fields=['quantity', 'updated_at'])
+        return existing
+    return StockAllocation.objects.create(
+        allocation_type='ACTUAL',
+        batch=batch,
+        position=position,
+        quantity=qty,
+    )
+
+
 @transaction.atomic
 def allocate_stock(*, position_id, user, batch_id=None, unit_id=None, quantity=None, allocation_type='ACTUAL'):
     if bool(batch_id) == bool(unit_id):
@@ -44,16 +68,33 @@ def allocate_stock(*, position_id, user, batch_id=None, unit_id=None, quantity=N
         qty = Decimal(str(quantity if quantity is not None else batch.available_qty))
         if qty <= 0 or qty > batch.available_qty:
             raise ApiError('INVALID_QTY', 'Invalid allocation quantity')
+
         if allocation_type == 'ACTUAL':
-            StockAllocation.objects.filter(
-                batch=batch, allocation_type='ACTUAL', is_active=True
-            ).update(is_active=False)
-        allocation = StockAllocation.objects.create(
-            allocation_type=allocation_type,
-            batch=batch,
-            position=position,
-            quantity=qty,
-        )
+            # Full putaway to one location: replace all other active ACTUAL rows.
+            # Partial putaway: keep other locations (supports split batches).
+            full_putaway = qty >= batch.available_qty
+            if full_putaway:
+                StockAllocation.objects.filter(
+                    batch=batch, allocation_type='ACTUAL', is_active=True
+                ).update(is_active=False)
+                allocation = StockAllocation.objects.create(
+                    allocation_type='ACTUAL',
+                    batch=batch,
+                    position=position,
+                    quantity=qty,
+                )
+            else:
+                allocation = _merge_or_create_batch_allocation(
+                    batch=batch, position=position, qty=qty
+                )
+        else:
+            allocation = StockAllocation.objects.create(
+                allocation_type=allocation_type,
+                batch=batch,
+                position=position,
+                quantity=qty,
+            )
+
         InventoryTransaction.objects.create(
             type='ALLOCATE',
             batch=batch,
@@ -129,22 +170,17 @@ def transfer_stock(*, from_position_id, to_position_id, user, batch_id=None, uni
                 'Transfer quantity exceeds quantity at source location',
                 details={'available': str(available_at_source)},
             )
-        source_alloc.is_active = False
-        source_alloc.save(update_fields=['is_active', 'updated_at'])
         remaining = available_at_source - qty
         if remaining > 0:
-            StockAllocation.objects.create(
-                allocation_type='ACTUAL',
-                batch=batch,
-                position=from_pos,
-                quantity=remaining,
-            )
-        StockAllocation.objects.create(
-            allocation_type='ACTUAL',
-            batch=batch,
-            position=to_pos,
-            quantity=qty,
-        )
+            source_alloc.quantity = remaining
+            source_alloc.save(update_fields=['quantity', 'updated_at'])
+        else:
+            source_alloc.is_active = False
+            source_alloc.quantity = Decimal('0')
+            source_alloc.save(update_fields=['is_active', 'quantity', 'updated_at'])
+
+        _merge_or_create_batch_allocation(batch=batch, position=to_pos, qty=qty)
+
         InventoryTransaction.objects.create(
             type='TRANSFER',
             batch=batch,
@@ -171,6 +207,9 @@ def transfer_stock(*, from_position_id, to_position_id, user, batch_id=None, uni
             raise ApiError('NOT_FOUND', 'No active allocation at source position', status_code=404)
         source_alloc.is_active = False
         source_alloc.save(update_fields=['is_active', 'updated_at'])
+        StockAllocation.objects.filter(
+            unit=unit, allocation_type='ACTUAL', is_active=True
+        ).exclude(pk=source_alloc.pk).update(is_active=False)
         StockAllocation.objects.create(
             allocation_type='ACTUAL',
             unit=unit,

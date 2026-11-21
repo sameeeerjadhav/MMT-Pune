@@ -4,7 +4,7 @@ from django.db import transaction
 
 from audit.models import AuditLog
 from config.exceptions import ApiError
-from inventory.models import InventoryBatch, InventoryTransaction, InventoryUnit
+from inventory.models import InventoryBatch, InventoryTransaction, InventoryUnit, StockAllocation
 from inventory.services.fifo import assert_fifo_or_override, check_fifo_batch, check_fifo_unit
 from withdrawals.models import Withdrawal, WithdrawalLine
 
@@ -27,10 +27,48 @@ def _active_location(obj):
     }
 
 
+def _reduce_batch_allocations(batch: InventoryBatch, qty: Decimal) -> None:
+    """Reduce active ACTUAL allocation quantities to match a batch withdrawal."""
+    remaining = qty
+    allocations = list(
+        StockAllocation.objects.select_for_update()
+        .filter(batch=batch, allocation_type='ACTUAL', is_active=True)
+        .order_by('id')
+    )
+    for alloc in allocations:
+        if remaining <= 0:
+            break
+        current = alloc.quantity or Decimal('0')
+        if current <= 0:
+            alloc.is_active = False
+            alloc.save(update_fields=['is_active', 'updated_at'])
+            continue
+        take = min(current, remaining)
+        new_qty = current - take
+        remaining -= take
+        if new_qty <= 0:
+            alloc.is_active = False
+            alloc.quantity = Decimal('0')
+            alloc.save(update_fields=['is_active', 'quantity', 'updated_at'])
+        else:
+            alloc.quantity = new_qty
+            alloc.save(update_fields=['quantity', 'updated_at'])
+
+
+def _deactivate_unit_allocations(unit: InventoryUnit) -> None:
+    StockAllocation.objects.filter(
+        unit=unit, allocation_type='ACTUAL', is_active=True
+    ).update(is_active=False)
+
+
 @transaction.atomic
 def validate_withdrawal(*, batch_id=None, unit_id=None, quantity=None):
+    """Read-only validation — no ledger writes and no row locks."""
     if batch_id:
-        batch = InventoryBatch.objects.select_for_update().get(pk=batch_id)
+        try:
+            batch = InventoryBatch.objects.get(pk=batch_id)
+        except InventoryBatch.DoesNotExist:
+            raise ApiError('NOT_FOUND', 'Batch not found', status_code=404)
         if batch.testing_status == 'FAILED':
             raise ApiError('INELIGIBLE', 'Cannot withdraw failed inventory')
         qty = Decimal(str(quantity or 0))
@@ -42,13 +80,7 @@ def validate_withdrawal(*, batch_id=None, unit_id=None, quantity=None):
                 'Insufficient available quantity',
                 details={'available': str(batch.available_qty)},
             )
-        fifo = check_fifo_batch(batch, for_update=True)
-        InventoryTransaction.objects.create(
-            type='FIFO_CHECK',
-            batch=batch,
-            quantity=qty,
-            metadata=fifo,
-        )
+        fifo = check_fifo_batch(batch, for_update=False)
         return {
             'type': 'BATCH',
             'batch_id': batch.id,
@@ -59,18 +91,15 @@ def validate_withdrawal(*, batch_id=None, unit_id=None, quantity=None):
         }
 
     if unit_id:
-        unit = InventoryUnit.objects.select_for_update().get(pk=unit_id)
+        try:
+            unit = InventoryUnit.objects.get(pk=unit_id)
+        except InventoryUnit.DoesNotExist:
+            raise ApiError('NOT_FOUND', 'Unit not found', status_code=404)
         if unit.status != 'AVAILABLE':
             raise ApiError('INELIGIBLE', f'Unit status is {unit.status}')
         if unit.testing_status == 'FAILED':
             raise ApiError('INELIGIBLE', 'Cannot withdraw failed inventory')
-        fifo = check_fifo_unit(unit, for_update=True)
-        InventoryTransaction.objects.create(
-            type='FIFO_CHECK',
-            unit=unit,
-            quantity=Decimal('1'),
-            metadata=fifo,
-        )
+        fifo = check_fifo_unit(unit, for_update=False)
         return {
             'type': 'UNIT',
             'unit_id': unit.id,
@@ -116,6 +145,7 @@ def create_withdrawal(
         if batch.available_qty < 0:
             raise ApiError('NEGATIVE_STOCK', 'Negative stock prevented')
         batch.save(update_fields=['available_qty', 'withdrawn_qty', 'updated_at'])
+        _reduce_batch_allocations(batch, qty)
 
         withdrawal = Withdrawal.objects.create(
             purpose=purpose, reference=reference, notes=notes, user=user
@@ -163,6 +193,7 @@ def create_withdrawal(
     updated = InventoryUnit.objects.filter(pk=unit.id, status='AVAILABLE').update(status='WITHDRAWN')
     if updated != 1:
         raise ApiError('CONCURRENT_UPDATE', 'Unit already withdrawn', status_code=409)
+    _deactivate_unit_allocations(unit)
 
     withdrawal = Withdrawal.objects.create(
         purpose=purpose, reference=reference, notes=notes, user=user

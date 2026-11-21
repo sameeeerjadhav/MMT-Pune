@@ -21,12 +21,18 @@ class GenerateBarcodeView(APIView):
     def post(self, request):
         entity_type = request.data.get('entity_type')
         entity_id = request.data.get('entity_id')
-        if entity_type not in ('BATCH', 'UNIT', 'RACK') or not entity_id:
+        if entity_type not in ('BATCH', 'UNIT', 'RACK') or entity_id in (None, ''):
             raise ApiError('VALIDATION_ERROR', 'entity_type and entity_id required')
-        existing = Barcode.objects.filter(entity_type=entity_type, entity_id=entity_id).first()
+        try:
+            entity_id_int = int(entity_id)
+        except (TypeError, ValueError):
+            raise ApiError('VALIDATION_ERROR', 'entity_id must be a positive integer')
+        if entity_id_int <= 0:
+            raise ApiError('VALIDATION_ERROR', 'entity_id must be a positive integer')
+        existing = Barcode.objects.filter(entity_type=entity_type, entity_id=entity_id_int).first()
         if existing:
             return Response(BarcodeSerializer(existing).data)
-        barcode = create_barcode(entity_type, int(entity_id), request.data.get('label_data') or {})
+        barcode = create_barcode(entity_type, entity_id_int, request.data.get('label_data') or {})
         return Response(BarcodeSerializer(barcode).data, status=status.HTTP_201_CREATED)
 
 

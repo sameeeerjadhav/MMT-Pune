@@ -23,17 +23,6 @@ export default function WithdrawalScreen({ route, navigation }: any) {
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
 
-  useEffect(() => {
-    if (paramBatchId) {
-      setBatchId(paramBatchId);
-      setUnitId('');
-    }
-    if (paramUnitId) {
-      setUnitId(paramUnitId);
-      setBatchId('');
-    }
-  }, [paramBatchId, paramUnitId]);
-
   const loadHistory = async () => {
     try {
       const { data } = await withdrawalApi.list();
@@ -52,32 +41,47 @@ export default function WithdrawalScreen({ route, navigation }: any) {
     }, [])
   );
 
+  const validate = useCallback(
+    async (overrideBatchId?: string, overrideUnitId?: string, overrideQty?: string) => {
+      const nextBatchId = overrideBatchId ?? batchId;
+      const nextUnitId = overrideUnitId ?? unitId;
+      const nextQty = overrideQty ?? quantity;
+      setError('');
+      try {
+        const payload: any = {};
+        if (nextBatchId) {
+          payload.batch_id = Number(nextBatchId);
+          payload.quantity = Number(nextQty);
+        } else if (nextUnitId) {
+          payload.unit_id = Number(nextUnitId);
+        } else {
+          setError('Enter a batch or unit');
+          return;
+        }
+        const { data } = await withdrawalApi.validate(payload);
+        setValidation(data);
+      } catch (e) {
+        setError(getErrorMessage(e));
+        setValidation(null);
+      }
+    },
+    [batchId, unitId, quantity]
+  );
+
+  // Sync route params and validate with those values (avoids stale state race).
   useEffect(() => {
-    if (paramBatchId || paramUnitId) {
-      validate();
+    if (paramBatchId) {
+      setBatchId(paramBatchId);
+      setUnitId('');
+      validate(paramBatchId, '', quantity);
+      return;
+    }
+    if (paramUnitId) {
+      setUnitId(paramUnitId);
+      setBatchId('');
+      validate('', paramUnitId, quantity);
     }
   }, [paramBatchId, paramUnitId]);
-
-  const validate = async () => {
-    setError('');
-    try {
-      const payload: any = {};
-      if (batchId) {
-        payload.batch_id = Number(batchId);
-        payload.quantity = Number(quantity);
-      } else if (unitId) {
-        payload.unit_id = Number(unitId);
-      } else {
-        setError('Enter a batch or unit');
-        return;
-      }
-      const { data } = await withdrawalApi.validate(payload);
-      setValidation(data);
-    } catch (e) {
-      setError(getErrorMessage(e));
-      setValidation(null);
-    }
-  };
 
   const confirm = async () => {
     setLoading(true);
@@ -154,7 +158,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
           {batchId ? (
             <Input placeholder="Quantity" value={quantity} onChangeText={setQuantity} keyboardType="numeric" />
           ) : null}
-          <Button label="Validate FIFO / stock" variant="secondary" onPress={validate} />
+          <Button label="Validate FIFO / stock" variant="secondary" onPress={() => validate()} />
           <Button
             label="Load BATCH-002 for FIFO demo"
             variant="secondary"
