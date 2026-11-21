@@ -10,7 +10,7 @@ from rest_framework.test import APIClient
 from accounts.models import Role
 from grn.models import GRN, GRNLine
 from inventory.models import Category, InventoryBatch, Item, StockAllocation, Vendor
-from warehouses.models import Rack, RackPosition, Shelf, Warehouse
+from warehouses.models import Floor, Rack, RackPosition, Shelf, Warehouse
 
 User = get_user_model()
 
@@ -257,3 +257,124 @@ class RackMapViewTests(TestCase):
     def test_map_missing_rack_returns_404(self):
         res = self.client.get('/api/racks/999999/map/')
         self.assertEqual(res.status_code, 404)
+
+
+class FloorMapViewTests(TestCase):
+    def setUp(self):
+        admin_role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})
+        emp_role, _ = Role.objects.get_or_create(
+            code='WAREHOUSE_EMPLOYEE', defaults={'name': 'Warehouse Employee'}
+        )
+        self.admin = User.objects.create_user(username='floor_admin', password='pass12345', role=admin_role)
+        self.employee = User.objects.create_user(username='floor_emp', password='pass12345', role=emp_role)
+        self.client = APIClient()
+
+        cat = Category.objects.create(code='FL', name='Floor Cat')
+        vendor = Vendor.objects.create(code='FLV', name='Floor Vendor')
+        item = Item.objects.create(
+            item_code='FL-BOLT', name='Floor Bolt', category=cat, inventory_type='BULK'
+        )
+        grn = GRN.objects.create(
+            grn_number='G-FL', vendor=vendor, received_date=timezone.now(), external_system='MANUAL'
+        )
+        line = GRNLine.objects.create(
+            grn=grn,
+            item=item,
+            received_qty=40,
+            uom='EA',
+            testing_status='PASSED',
+            classification='BULK',
+        )
+        self.batch = InventoryBatch.objects.create(
+            batch_code='FL-BATCH',
+            item=item,
+            grn_line=line,
+            received_qty=40,
+            available_qty=40,
+            testing_status='PASSED',
+            received_at=timezone.now(),
+        )
+
+        self.wh = Warehouse.objects.create(code='WH-FL', name='Floor WH')
+        self.floor = Floor.objects.create(
+            warehouse=self.wh, code='G', name='Ground', level=1, row_count=2, column_count=3
+        )
+        self.rack = Rack.objects.create(
+            warehouse=self.wh,
+            floor=self.floor,
+            code='R-FL',
+            name='Floor Rack',
+            row_index=1,
+            column_index=2,
+        )
+        shelf = Shelf.objects.create(rack=self.rack, code='A')
+        pos = RackPosition.objects.create(shelf=shelf, code='01')
+        StockAllocation.objects.create(
+            allocation_type='ACTUAL',
+            batch=self.batch,
+            position=pos,
+            quantity=Decimal('15'),
+            is_active=True,
+        )
+        self.spare = Rack.objects.create(warehouse=self.wh, code='R-SPARE', name='Spare Rack')
+
+    def test_floor_map_grid_and_stock(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.get(f'/api/floors/{self.floor.id}/map/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['floor']['code'], 'G')
+        self.assertEqual(res.data['summary']['cells'], 6)
+        self.assertEqual(res.data['summary']['placed_racks'], 1)
+        self.assertTrue(res.data['can_edit_layout'])
+        cell = res.data['grid'][0]['cells'][1]
+        self.assertFalse(cell['empty'])
+        self.assertEqual(cell['rack']['code'], 'R-FL')
+        self.assertEqual(cell['rack']['stock_lines'], 1)
+        self.assertEqual(cell['rack']['stock'][0]['batch_code'], 'FL-BATCH')
+
+    def test_employee_sees_map_but_cannot_edit_layout(self):
+        self.client.force_authenticate(user=self.employee)
+        res = self.client.get(f'/api/floors/{self.floor.id}/map/')
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.data['can_edit_layout'])
+        patch = self.client.patch(
+            f'/api/floors/{self.floor.id}/layout/',
+            {'row_count': 5, 'column_count': 5},
+            format='json',
+        )
+        self.assertEqual(patch.status_code, 403)
+
+    def test_admin_updates_layout_and_places_rack(self):
+        self.client.force_authenticate(user=self.admin)
+        patch = self.client.patch(
+            f'/api/floors/{self.floor.id}/layout/',
+            {'row_count': 3, 'column_count': 3},
+            format='json',
+        )
+        self.assertEqual(patch.status_code, 200)
+        self.assertEqual(patch.data['row_count'], 3)
+        place = self.client.post(
+            f'/api/floors/{self.floor.id}/place-rack/',
+            {'rack_id': self.spare.id, 'row_index': 2, 'column_index': 1},
+            format='json',
+        )
+        self.assertEqual(place.status_code, 200)
+        self.spare.refresh_from_db()
+        self.assertEqual(self.spare.floor_id, self.floor.id)
+        self.assertEqual(self.spare.row_index, 2)
+        self.assertEqual(self.spare.column_index, 1)
+
+    def test_employee_cannot_create_floor(self):
+        self.client.force_authenticate(user=self.employee)
+        res = self.client.post(
+            '/api/floors/',
+            {
+                'warehouse_id': self.wh.id,
+                'code': 'L2',
+                'name': 'Level 2',
+                'row_count': 2,
+                'column_count': 2,
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 403)

@@ -82,8 +82,8 @@ export default function DashboardScreen() {
     }
     if (canAccess(role, 'warehouse')) {
       items.push({
-        title: 'Racks',
-        subtitle: 'Allocate / move',
+        title: 'Floors',
+        subtitle: 'Floor maps & stock',
         tab: 'Warehouse',
         tone: 'navy',
         icon: <RackIcon size={22} color={colors.navy} />,
