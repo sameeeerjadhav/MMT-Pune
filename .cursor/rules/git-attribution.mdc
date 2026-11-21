@@ -11,3 +11,4 @@ alwaysApply: true
   - Email: `135796411+DurgeshShewale29@users.noreply.github.com`
 - Allowed repository contributors: **DurgeshShewale29** and **sameeeerjadhav** only.
 - Do not add `Co-authored-by: Cursor` (or any Cursor trailer) to commit messages.
+- After every `git commit`, run `git log -1 --format=%B` and if a Cursor co-author trailer appears, strip it immediately with `git commit --amend --no-verify` using Durgesh’s author env vars and a message that contains **no** Co-authored-by line. Do not leave Cursor trailers on the remote.
