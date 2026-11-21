@@ -8,6 +8,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { colors, radius, shadow, spacing } from '../theme/tokens';
 
 export function Screen({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
@@ -217,16 +218,39 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
 }
 
 export function FifoAlert({ message, older }: { message: string; older?: any }) {
+  const navigation = useNavigation<any>();
+  const olderLabel = older?.code || 'older stock';
+  const friendlyMessage =
+    message?.includes('FIFO VIOLATION') || message?.includes('Older stock is available')
+      ? 'This item has older stock that should be used first. Open the older stock below, then withdraw that instead.'
+      : message;
+
+  const openOlderStock = () => {
+    if (!older?.id) return;
+    const isUnit = older.kind === 'UNIT';
+    navigation.navigate('Inventory', {
+      screen: isUnit ? 'UnitDetail' : 'BatchDetail',
+      params: { id: older.id },
+    });
+  };
+
   return (
     <View style={styles.fifo}>
-      <Text style={styles.fifoTitle}>FIFO VIOLATION</Text>
-      <Text style={styles.fifoMsg}>{message}</Text>
+      <Text style={styles.fifoTitle}>Use older stock first</Text>
+      <Text style={styles.fifoMsg}>{friendlyMessage}</Text>
       {older ? (
-        <Text style={styles.fifoMsg}>
-          Older: {older.code} | Date: {String(older.grn_date).slice(0, 10)} | Qty: {older.available_qty}
+        <Text style={[styles.fifoMsg, { marginTop: 8 }]}>
+          Older stock: {older.code}
           {'\n'}
-          Loc: {older.warehouse}/{older.rack}/{older.shelf}/{older.position}
+          Received: {String(older.grn_date).slice(0, 10)} · Qty: {older.available_qty}
+          {'\n'}
+          Location: {[older.warehouse, older.rack, older.shelf, older.position].filter(Boolean).join('/') || '—'}
         </Text>
+      ) : null}
+      {older?.id ? (
+        <View style={{ marginTop: 10 }}>
+          <Button label={`Open ${olderLabel}`} onPress={openOlderStock} />
+        </View>
       ) : null}
     </View>
   );
