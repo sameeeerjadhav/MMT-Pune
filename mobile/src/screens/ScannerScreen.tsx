@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { inventoryApi } from '../api/endpoints';
@@ -12,10 +12,16 @@ export default function ScannerScreen({ navigation }: any) {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState('');
   const [scanning, setScanning] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const inFlight = useRef(false);
 
   const lookup = async (code: string, source: string) => {
-    if (!code) return;
+    if (!code || inFlight.current) return;
+    inFlight.current = true;
     setError('');
+    setLoading(true);
+    // Pause camera immediately so failed scans cannot loop.
+    if (source === 'camera') setScanning(false);
     try {
       const { data } = await inventoryApi.scan(code.trim());
       setResult({ ...data, source });
@@ -23,6 +29,10 @@ export default function ScannerScreen({ navigation }: any) {
     } catch (e) {
       setError(getErrorMessage(e));
       setResult(null);
+      setScanning(false);
+    } finally {
+      setLoading(false);
+      inFlight.current = false;
     }
   };
 
@@ -32,34 +42,59 @@ export default function ScannerScreen({ navigation }: any) {
       <Muted>Camera, manual entry, or simulated seed barcodes.</Muted>
 
       {permission?.granted && scanning ? (
-        <View style={{ height: 240, borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
+        <View style={{ height: 240, borderRadius: 16, overflow: 'hidden', marginBottom: 12 }}>
           <CameraView
             style={{ flex: 1 }}
             barcodeScannerSettings={{ barcodeTypes: ['code128', 'qr', 'ean13'] }}
-            onBarcodeScanned={({ data }) => lookup(data, 'camera')}
+            onBarcodeScanned={loading ? undefined : ({ data }) => lookup(data, 'camera')}
           />
         </View>
       ) : (
         <Card>
           <Muted>Camera {permission?.granted ? 'paused after scan' : 'permission needed'}</Muted>
           {!permission?.granted ? <Button label="Enable camera" onPress={requestPermission} /> : null}
-          {!scanning ? <Button label="Scan again" variant="secondary" onPress={() => { setScanning(true); setResult(null); }} /> : null}
+          {!scanning ? (
+            <Button
+              label="Scan again"
+              variant="secondary"
+              onPress={() => {
+                setScanning(true);
+                setResult(null);
+                setError('');
+              }}
+            />
+          ) : null}
         </Card>
       )}
 
-      <Input placeholder="Manual barcode entry" value={manual} onChangeText={setManual} autoCapitalize="characters" />
-      <Button label="Lookup barcode" onPress={() => lookup(manual, 'manual')} />
+      <Input
+        placeholder="Manual barcode entry"
+        value={manual}
+        onChangeText={setManual}
+        autoCapitalize="characters"
+      />
+      <Button label="Lookup barcode" onPress={() => lookup(manual, 'manual')} loading={loading} />
       <Button
         label="Simulate BATCH-002 barcode"
         variant="secondary"
+        loading={loading}
         onPress={async () => {
-          const inv = await inventoryApi.list({ q: 'BATCH-002' });
-          const batch = inv.data.batches?.[0];
-          if (batch?.barcode_value) {
-            setManual(batch.barcode_value);
-            lookup(batch.barcode_value, 'simulated');
-          } else {
-            setError('BATCH-002 not found in seed data');
+          if (inFlight.current) return;
+          setLoading(true);
+          setError('');
+          try {
+            const inv = await inventoryApi.list({ q: 'BATCH-002' });
+            const batch = inv.data.batches?.[0];
+            if (batch?.barcode_value) {
+              setManual(batch.barcode_value);
+              await lookup(batch.barcode_value, 'simulated');
+            } else {
+              setError('BATCH-002 not found in seed data');
+              setLoading(false);
+            }
+          } catch (e) {
+            setError(getErrorMessage(e));
+            setLoading(false);
           }
         }}
       />
@@ -76,6 +111,7 @@ export default function ScannerScreen({ navigation }: any) {
                 ? result.unit?.unit_code
                 : result.rack?.code}
           </Subtitle>
+          <Muted>Source: {result.source}</Muted>
           {result.type === 'BATCH' ? (
             <>
               <Text>{result.batch?.item?.name}</Text>

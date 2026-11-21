@@ -15,6 +15,32 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+type AuthFailureHandler = () => void;
+let onAuthFailure: AuthFailureHandler | null = null;
+
+/** Register a handler (e.g. clear user) when refresh fails and session is cleared. */
+export function setOnAuthFailure(handler: AuthFailureHandler | null) {
+  onAuthFailure = handler;
+}
+
+let refreshPromise: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refresh = await storage.getItem('refreshToken');
+  if (!refresh) return null;
+  try {
+    const { data } = await axios.post(`${API_BASE_URL}/auth/refresh/`, { refresh });
+    await storage.setItem('accessToken', data.access);
+    if (data.refresh) await storage.setItem('refreshToken', data.refresh);
+    return data.access as string;
+  } catch {
+    await storage.deleteItem('accessToken');
+    await storage.deleteItem('refreshToken');
+    onAuthFailure?.();
+    return null;
+  }
+}
+
 api.interceptors.request.use(async (config) => {
   const token = await storage.getItem('accessToken');
   if (token) {
@@ -27,20 +53,17 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+    if (error.response?.status === 401 && original && !original._retry) {
       original._retry = true;
-      const refresh = await storage.getItem('refreshToken');
-      if (refresh) {
-        try {
-          const { data } = await axios.post(`${API_BASE_URL}/auth/refresh/`, { refresh });
-          await storage.setItem('accessToken', data.access);
-          if (data.refresh) await storage.setItem('refreshToken', data.refresh);
-          original.headers.Authorization = `Bearer ${data.access}`;
-          return api(original);
-        } catch {
-          await storage.deleteItem('accessToken');
-          await storage.deleteItem('refreshToken');
-        }
+      if (!refreshPromise) {
+        refreshPromise = refreshAccessToken().finally(() => {
+          refreshPromise = null;
+        });
+      }
+      const access = await refreshPromise;
+      if (access) {
+        original.headers.Authorization = `Bearer ${access}`;
+        return api(original);
       }
     }
     return Promise.reject(error);

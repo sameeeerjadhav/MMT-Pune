@@ -6,7 +6,7 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme/tokens';
-import { primaryTabsForRole } from '../utils/roles';
+import { canAccessTab, primaryTabsForRole } from '../utils/roles';
 
 import LoginScreen from '../screens/LoginScreen';
 import DashboardScreen from '../screens/DashboardScreen';
@@ -161,12 +161,13 @@ function MainTabs() {
   const { user } = useAuth();
   const visible = useMemo(() => new Set(primaryTabsForRole(user?.role)), [user?.role]);
 
-  // Keep tab order matching role primary list, then hidden routes for deep links.
+  // Only register tabs the role may access. Extra allowed tabs stay hidden for deep links / More.
   const ordered = useMemo(() => {
+    const allowed = TAB_DEFS.filter((t) => canAccessTab(user?.role, t.name));
     const primary = primaryTabsForRole(user?.role)
-      .map((name) => TAB_DEFS.find((t) => t.name === name))
+      .map((name) => allowed.find((t) => t.name === name))
       .filter(Boolean) as TabDef[];
-    const hidden = TAB_DEFS.filter((t) => !visible.has(t.name));
+    const hidden = allowed.filter((t) => !visible.has(t.name));
     return [...primary, ...hidden];
   }, [user?.role, visible]);
 

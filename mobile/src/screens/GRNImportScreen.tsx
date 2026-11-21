@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { ScrollView, Text } from 'react-native';
 import { grnApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { Button, Card, Input, Screen, Title, Muted } from '../components/ui';
 import { colors } from '../theme/tokens';
+import { canAccess } from '../utils/roles';
 
 const samplePayload = {
   grn_number: `GRN-DEMO-${Date.now().toString().slice(-6)}`,
@@ -27,10 +29,21 @@ const samplePayload = {
 };
 
 export default function GRNImportScreen({ navigation }: any) {
+  const { user } = useAuth();
   const [json, setJson] = useState(JSON.stringify(samplePayload, null, 2));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  if (!canAccess(user?.role, 'grnImport')) {
+    return (
+      <Screen>
+        <Title>Import GRN</Title>
+        <Muted>GRN import is limited to supervisors and admins.</Muted>
+        <Button label="Go back" variant="secondary" onPress={() => navigation.goBack()} />
+      </Screen>
+    );
+  }
 
   const submit = async () => {
     setLoading(true);

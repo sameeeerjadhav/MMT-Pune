@@ -1,34 +1,58 @@
-# Client demo guide
+# Client demo guide (development)
 
-## Setup
+**Phase:** Development / demo polish only. No VPS deployment in this phase.
 
-1. `docker compose up -d` (or use existing PostgreSQL)
+## Setup (local)
+
+1. Use local PostgreSQL (already installed) or `docker compose up -d`
 2. Python 3.12+ venv → `pip install -r backend/requirements.txt`
 3. Copy `backend/.env.example` → `backend/.env`
+   - Include your LAN IP in `DJANGO_ALLOWED_HOSTS` for phone testing
 4. `python manage.py migrate` then `python manage.py seed_demo`
 5. `python manage.py runserver 0.0.0.0:8000`
 6. `cd mobile && npm install && npx expo start` (Expo Go on Android)
 
-## Credentials
+Optional PC browser preview:
 
-- admin / Demo@12345
-- supervisor / Demo@12345
-- employee / Demo@12345
+```bash
+cd mobile
+npx expo start --web --port 8082
+```
 
-## Script (10–12 minutes)
+Open http://localhost:8082 (requires CORS origins for 8082 in `.env`).
 
-1. **Login** as admin — dashboard metrics, FIFO alerts, recent activity.
-2. **GRN list** — open GRN-1001 / GRN-1002 (Steel Bolt older/newer).
-3. **Inventory** — open BATCH-001 (partially withdrawn) and BATCH-002; show Code 128 label preview image.
-4. **Scanner** — Simulate BATCH-002 barcode; show FIFO warning with older location.
-5. **Withdrawal** as employee — attempt BATCH-002 qty 5 — blocked (no override fields for employee).
-6. **Withdrawal** as supervisor — same request with override reason — succeeds; open confirmation + recent list.
-7. **Warehouses** — pick WH-MAIN, open R-01 inventory; allocate / transfer with location pickers.
-8. **Import GRN** — post mock sample payload; show duplicate rejection if re-imported.
-9. **Reports** — stock, occupancy, FIFO (readable rows, not raw JSON).
+## Credentials (dev only)
 
-## Notes for stakeholders
+| User | Password | Role |
+|------|----------|------|
+| `admin` | `Demo@12345` | Administrator |
+| `supervisor` | `Demo@12345` | Supervisor |
+| `employee` | `Demo@12345` | Warehouse Employee |
 
-- M1/Workroom are mocked for this demo.
-- Zebra hardware is designed via HAL but not claimed complete until on-device testing.
-- PostgreSQL is the source of truth; the mobile app only talks to the HTTPS/HTTP API.
+## What each login shows
+
+| Role | Primary tabs | Key powers |
+|------|--------------|------------|
+| Employee | Home · Scan · Out · Stock · More | Scan, allocate, transfer, withdraw. **No** import, reports, FIFO override |
+| Supervisor | Home · Scan · GRN · Racks · More | Import GRN, create racks, reports, FIFO override |
+| Admin | Home · Stock · GRN · Reports · More | Full control + reports |
+
+## Walkthrough script (~12 minutes)
+
+1. **Login as employee** — show floor tabs (no Reports). Dashboard metrics from PostgreSQL.
+2. **Scan** — Simulate BATCH-002. Show Steel Bolt + FIFO risk if older stock remains.
+3. **Out (Withdrawal)** — try qty 5 on BATCH-002 → **FIFO VIOLATION**. Confirm employee cannot override.
+4. **Sign out → Login as supervisor** — tabs now include GRN + Racks.
+5. **Withdrawal** — same BATCH-002 with override reason → success + confirmation.
+6. **GRN** — open GRN-1001 / GRN-1002; show Import button; import sample, then re-import → duplicate rejected.
+7. **Racks** — WH-MAIN → R-01; allocate / transfer with pickers.
+8. **Sign out → Login as admin** — Reports tab visible.
+9. **Inventory / Stock** — BATCH-001 & BATCH-002; Code 128 label preview.
+10. **Reports** — stock, occupancy, FIFO (readable rows).
+
+## Stakeholder notes
+
+- M1 / Workroom are **mock/stub only**.
+- Zebra DataWedge / Link-OS are **HAL stubs** (camera + manual for demo).
+- PostgreSQL is the source of truth; mobile talks only to the API.
+- Deployment (Phase 4 / VPS) is **deferred** until development sign-off.

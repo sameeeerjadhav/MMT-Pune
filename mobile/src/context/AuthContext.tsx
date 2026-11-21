@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { setOnAuthFailure } from '../api/client';
 import { authApi } from '../api/endpoints';
 import * as storage from '../utils/secureStorage';
 
@@ -27,6 +28,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setOnAuthFailure(() => setUser(null));
+    return () => setOnAuthFailure(null);
+  }, []);
+
+  useEffect(() => {
     (async () => {
       try {
         const token = await storage.getItem('accessToken');
@@ -37,6 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {
         await storage.deleteItem('accessToken');
         await storage.deleteItem('refreshToken');
+        setUser(null);
       } finally {
         setLoading(false);
       }
