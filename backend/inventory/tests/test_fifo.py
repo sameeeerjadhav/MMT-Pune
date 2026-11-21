@@ -9,7 +9,8 @@ from accounts.models import Role
 from audit.models import AuditLog
 from barcodes.services import create_barcode, label_payload, render_label_png_bytes
 from grn.models import GRN, GRNLine
-from inventory.models import Category, InventoryBatch, InventoryUnit, Item, Vendor
+from inventory.models import Category, InventoryBatch, InventoryUnit, Item, StockAllocation, Vendor
+from warehouses.models import Rack, RackPosition, Shelf, Warehouse
 
 
 User = get_user_model()
@@ -331,3 +332,125 @@ class ConcurrentWithdrawSmokeTests(TestCase):
         self.assertEqual(second.data['code'], 'INSUFFICIENT_STOCK')
         self.batch.refresh_from_db()
         self.assertEqual(self.batch.available_qty, Decimal('3'))
+
+
+class AllocationSyncTests(TestCase):
+    def setUp(self):
+        role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})
+        self.user = User.objects.create_user(username='alloc_tester', password='pass12345', role=role)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+        cat = Category.objects.create(code='AS', name='Alloc Sync')
+        vendor = Vendor.objects.create(code='ASV', name='Alloc Vendor')
+        item = Item.objects.create(
+            item_code='ALLOC-BOLT', name='Alloc Bolt', category=cat, inventory_type='BULK'
+        )
+        grn = GRN.objects.create(
+            grn_number='G-ALLOC', vendor=vendor, received_date=timezone.now(), external_system='MANUAL'
+        )
+        line = GRNLine.objects.create(
+            grn=grn,
+            item=item,
+            received_qty=100,
+            uom='EA',
+            testing_status='PASSED',
+            classification='BULK',
+        )
+        self.batch = InventoryBatch.objects.create(
+            batch_code='ALLOC-BATCH',
+            item=item,
+            grn_line=line,
+            received_qty=100,
+            available_qty=100,
+            testing_status='PASSED',
+            received_at=timezone.now(),
+        )
+        wh = Warehouse.objects.create(code='WH-AS', name='Alloc WH')
+        rack = Rack.objects.create(warehouse=wh, code='R-AS', name='Rack AS')
+        shelf = Shelf.objects.create(rack=rack, code='A')
+        self.pos = RackPosition.objects.create(shelf=shelf, code='01')
+        self.pos2 = RackPosition.objects.create(shelf=shelf, code='02')
+        StockAllocation.objects.create(
+            allocation_type='ACTUAL',
+            batch=self.batch,
+            position=self.pos,
+            quantity=Decimal('100'),
+        )
+
+    def test_partial_withdraw_reduces_allocation_qty(self):
+        res = self.client.post(
+            '/api/withdrawals/',
+            {'purpose': 'SHIPMENT', 'batch_id': self.batch.id, 'quantity': '30'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201)
+        self.batch.refresh_from_db()
+        alloc = StockAllocation.objects.get(
+            batch=self.batch, allocation_type='ACTUAL', is_active=True
+        )
+        self.assertEqual(self.batch.available_qty, Decimal('70'))
+        self.assertEqual(alloc.quantity, Decimal('70'))
+
+    def test_validate_does_not_write_fifo_check(self):
+        from inventory.models import InventoryTransaction
+
+        before = InventoryTransaction.objects.filter(type='FIFO_CHECK').count()
+        res = self.client.post(
+            '/api/withdrawals/validate/',
+            {'batch_id': self.batch.id, 'quantity': '5'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+        after = InventoryTransaction.objects.filter(type='FIFO_CHECK').count()
+        self.assertEqual(before, after)
+
+    def test_transfer_merges_destination_allocation(self):
+        # Split 40 to position 02 first
+        source = StockAllocation.objects.get(batch=self.batch, position=self.pos, is_active=True)
+        source.quantity = Decimal('60')
+        source.save(update_fields=['quantity'])
+        StockAllocation.objects.create(
+            allocation_type='ACTUAL',
+            batch=self.batch,
+            position=self.pos2,
+            quantity=Decimal('40'),
+        )
+        res = self.client.post(
+            '/api/locations/transfer/',
+            {
+                'batch_id': self.batch.id,
+                'from_position_id': self.pos.id,
+                'to_position_id': self.pos2.id,
+                'quantity': '10',
+                'reason': 'merge test',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201)
+        dest = StockAllocation.objects.get(
+            batch=self.batch, position=self.pos2, allocation_type='ACTUAL', is_active=True
+        )
+        self.assertEqual(dest.quantity, Decimal('50'))
+        self.assertEqual(
+            StockAllocation.objects.filter(
+                batch=self.batch, position=self.pos2, allocation_type='ACTUAL', is_active=True
+            ).count(),
+            1,
+        )
+
+
+class BarcodeGenerateValidationTests(TestCase):
+    def setUp(self):
+        role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})
+        self.user = User.objects.create_user(username='bc_val', password='pass12345', role=role)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_invalid_entity_id_returns_400(self):
+        res = self.client.post(
+            '/api/barcodes/generate/',
+            {'entity_type': 'BATCH', 'entity_id': 'abc'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.data['code'], 'VALIDATION_ERROR')
