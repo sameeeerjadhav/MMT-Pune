@@ -1,14 +1,17 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { inventoryApi, withdrawalApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Button, Card, FifoAlert, Input, LoadingState, Muted, Screen, Subtitle, Title } from '../components/ui';
+import { OutIcon } from '../components/icons';
+import { Button, Card, FifoAlert, Input, LoadingState, Muted, Screen, Subtitle } from '../components/ui';
+import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
 
 export default function WithdrawalScreen({ route, navigation }: any) {
   const { user } = useAuth();
+  const scrollPad = useTabScrollPadding(28);
   const paramBatchId = route.params?.batchId != null ? String(route.params.batchId) : '';
   const paramUnitId = route.params?.unitId != null ? String(route.params.unitId) : '';
   const [purpose, setPurpose] = useState<'SHIPMENT' | 'ASSEMBLY'>('SHIPMENT');
@@ -23,6 +26,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState('');
+  const syncedParams = useRef('');
 
   const loadHistory = useCallback(async () => {
     setHistoryError('');
@@ -57,7 +61,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
         } else if (nextUnitId) {
           payload.unit_id = Number(nextUnitId);
         } else {
-          setError('Enter a batch or unit');
+          setError('Enter a batch ID or unit ID');
           return;
         }
         const { data } = await withdrawalApi.validate(payload);
@@ -70,25 +74,60 @@ export default function WithdrawalScreen({ route, navigation }: any) {
     [batchId, unitId, quantity]
   );
 
-  // Sync route params and validate with those values (avoids stale state race).
+  const resetFormKey = route.params?.resetKey;
+
+  // Apply route params once per navigation — do not re-lock fields on every keystroke.
   useEffect(() => {
+    const key = `${paramBatchId}|${paramUnitId}|${resetFormKey ?? ''}`;
+    if (syncedParams.current === key) return;
+    syncedParams.current = key;
+
+    // Explicit reset from More/Dashboard (no batch/unit intent).
+    if (!paramBatchId && !paramUnitId) {
+      if (resetFormKey != null) {
+        setBatchId('');
+        setUnitId('');
+        setQuantity('5');
+        setOverrideReason('');
+        setValidation(null);
+        setError('');
+        setSuccess('');
+      }
+      return;
+    }
+
     if (paramBatchId) {
       setBatchId(paramBatchId);
       setUnitId('');
-      validate(paramBatchId, '', quantity);
+      setQuantity('5');
+      void validate(paramBatchId, '', '5');
       return;
     }
-    if (paramUnitId) {
-      setUnitId(paramUnitId);
-      setBatchId('');
-      validate('', paramUnitId, quantity);
-    }
-  }, [paramBatchId, paramUnitId, validate, quantity]);
+    setUnitId(paramUnitId);
+    setBatchId('');
+    void validate('', paramUnitId, '1');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when route params change
+  }, [paramBatchId, paramUnitId, resetFormKey]);
+
+  const canOverride = user?.role === 'ADMIN' || user?.role === 'SUPERVISOR';
+  const fifoBlocked = validation?.fifo && validation.fifo.eligible === false;
 
   const confirm = async () => {
-    setLoading(true);
     setError('');
     setSuccess('');
+    if (!batchId && !unitId) {
+      setError('Enter a batch ID or unit ID');
+      return;
+    }
+    if (fifoBlocked && !canOverride) {
+      setError('FIFO blocked — ask a supervisor or admin to override');
+      return;
+    }
+    if (fifoBlocked && canOverride && !overrideReason.trim()) {
+      setError('Override reason is required for FIFO override');
+      return;
+    }
+    setLoading(true);
     try {
       const payload: any = {
         purpose,
@@ -115,14 +154,17 @@ export default function WithdrawalScreen({ route, navigation }: any) {
     }
   };
 
-  const canOverride = user?.role === 'ADMIN' || user?.role === 'SUPERVISOR';
-  const fifoBlocked = validation?.fifo && validation.fifo.eligible === false;
-
   return (
-    <Screen>
-      <ScrollView>
-        <Title>Withdrawal</Title>
-        <Muted>Backend validates stock and FIFO inside a DB transaction.</Muted>
+    <Screen style={{ padding: 0 }}>
+      <ScrollView
+        contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <OutIcon size={22} color={colors.accent} />
+          <Muted>Backend validates stock and FIFO inside a DB transaction.</Muted>
+        </View>
 
         <Card>
           <Subtitle>Purpose</Subtitle>
@@ -139,27 +181,49 @@ export default function WithdrawalScreen({ route, navigation }: any) {
         </Card>
 
         <Card>
+          <Subtitle>Stock to withdraw</Subtitle>
+          <Muted>Use batch for bulk items, or unit for serialized items — not both.</Muted>
+
           <Input
-            placeholder="Batch ID (bulk)"
+            label="Batch ID"
+            placeholder="e.g. 6"
             value={batchId}
             onChangeText={(t) => {
               setBatchId(t);
-              setUnitId('');
+              if (t) setUnitId('');
+              setValidation(null);
             }}
             keyboardType="numeric"
           />
+          {validation?.batch_code && batchId ? (
+            <Muted>Selected batch: {validation.batch_code}</Muted>
+          ) : null}
+
           <Input
-            placeholder="Unit ID (individual)"
+            label="Unit ID"
+            placeholder="e.g. 12 (leave empty for batch)"
             value={unitId}
             onChangeText={(t) => {
               setUnitId(t);
-              setBatchId('');
+              if (t) setBatchId('');
+              setValidation(null);
             }}
             keyboardType="numeric"
           />
+
           {batchId ? (
-            <Input placeholder="Quantity" value={quantity} onChangeText={setQuantity} keyboardType="numeric" />
+            <Input
+              label="Quantity"
+              placeholder="How many to withdraw"
+              value={quantity}
+              onChangeText={(t) => {
+                setQuantity(t);
+                setValidation(null);
+              }}
+              keyboardType="numeric"
+            />
           ) : null}
+
           <Button label="Validate FIFO / stock" variant="secondary" onPress={() => validate()} />
           <Button
             label="Load BATCH-002 for FIFO demo"
@@ -171,6 +235,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
                 const batch = inv.data.batches?.[0];
                 if (batch) {
                   const id = String(batch.id);
+                  syncedParams.current = '';
                   setBatchId(id);
                   setUnitId('');
                   setQuantity('5');
@@ -210,7 +275,8 @@ export default function WithdrawalScreen({ route, navigation }: any) {
           <Card>
             <Subtitle>Supervisor override</Subtitle>
             <Input
-              placeholder="Mandatory override reason"
+              label="Override reason"
+              placeholder="Mandatory reason for FIFO override"
               value={overrideReason}
               onChangeText={setOverrideReason}
             />
@@ -257,38 +323,3 @@ export default function WithdrawalScreen({ route, navigation }: any) {
   );
 }
 
-export function WithdrawalConfirmScreen({ route }: any) {
-  const { id } = route.params;
-  const [data, setData] = useState<any>(null);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    withdrawalApi
-      .detail(id)
-      .then((r) => setData(r.data))
-      .catch((e) => setError(getErrorMessage(e)));
-  }, [id]);
-
-  return (
-    <Screen>
-      <Title>Confirmed</Title>
-      {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
-      {data ? (
-        <Card>
-          <Subtitle>Withdrawal #{data.id}</Subtitle>
-          <Text>Purpose: {data.purpose}</Text>
-          <Text>By: {data.user_name || data.user}</Text>
-          <Text>At: {String(data.created_at).slice(0, 19)}</Text>
-          {(data.lines || []).map((l: any) => (
-            <Text key={l.id} style={{ marginTop: 8 }}>
-              {l.batch_code || l.unit_code} qty {l.quantity}
-              {l.fifo_override ? ' (FIFO OVERRIDE)' : ''}
-            </Text>
-          ))}
-        </Card>
-      ) : !error ? (
-        <Muted>Loading...</Muted>
-      ) : null}
-    </Screen>
-  );
-}

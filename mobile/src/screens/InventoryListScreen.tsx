@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
+import { FlatList, Image, Pressable, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -13,12 +13,14 @@ import {
   Muted,
   Screen,
   SectionLabel,
-  Title,
 } from '../components/ui';
+import { EmptyBoxIcon } from '../components/icons';
+import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
 
 export default function InventoryListScreen() {
   const navigation = useNavigation<any>();
+  const scrollPad = useTabScrollPadding(28);
   const [q, setQ] = useState('');
   const qRef = useRef(q);
   qRef.current = q;
@@ -56,7 +58,6 @@ export default function InventoryListScreen() {
 
   return (
     <Screen>
-      <Title>Inventory</Title>
       <Muted>Search live batches and units from PostgreSQL.</Muted>
       <Input
         placeholder="Search item, batch, barcode..."
@@ -70,12 +71,16 @@ export default function InventoryListScreen() {
 
       <FlatList
         style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: scrollPad }}
         data={rows}
         keyExtractor={(item) => `${item.kind}-${item.id}`}
         ListHeaderComponent={<SectionLabel>{rows.length} results</SectionLabel>}
         ListEmptyComponent={
           <Card>
-            <Muted>No inventory matched your search. Try BATCH-001 or clear the filter.</Muted>
+            <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+              <EmptyBoxIcon size={64} />
+              <Muted>No inventory matched your search. Try BATCH-001 or clear the filter.</Muted>
+            </View>
           </Card>
         }
         renderItem={({ item }) => (
@@ -85,18 +90,41 @@ export default function InventoryListScreen() {
             }
           >
             <Card>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ fontWeight: '800', color: colors.navy, fontSize: 16 }}>
-                  {item.kind === 'BATCH' ? item.batch_code : item.unit_code}
-                </Text>
-                <Badge label={item.kind} tone={item.kind === 'BATCH' ? 'primary' : 'success'} />
+              <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                {item.item?.image_url ? (
+                  <Image
+                    source={{ uri: item.item.image_url }}
+                    style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: colors.surfaceMuted }}
+                  />
+                ) : (
+                  <View
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: 12,
+                      backgroundColor: colors.primarySoft,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <EmptyBoxIcon size={28} />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontWeight: '800', color: colors.navy, fontSize: 16, flex: 1 }}>
+                      {item.kind === 'BATCH' ? item.batch_code : item.unit_code}
+                    </Text>
+                    <Badge label={item.kind} tone={item.kind === 'BATCH' ? 'primary' : 'success'} />
+                  </View>
+                  <Text style={{ color: colors.text, marginTop: 4 }}>{item.item?.name}</Text>
+                  <Muted>
+                    {item.kind === 'BATCH'
+                      ? `Available ${item.available_qty} · ${item.barcode_value}`
+                      : `Status ${item.status} · ${item.barcode_value}`}
+                  </Muted>
+                </View>
               </View>
-              <Text style={{ color: colors.text, marginTop: 4 }}>{item.item?.name}</Text>
-              <Muted>
-                {item.kind === 'BATCH'
-                  ? `Available ${item.available_qty} · ${item.barcode_value}`
-                  : `Status ${item.status} · ${item.barcode_value}`}
-              </Muted>
             </Card>
           </Pressable>
         )}

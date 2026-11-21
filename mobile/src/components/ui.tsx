@@ -94,11 +94,13 @@ export function ActionTile({
   subtitle,
   onPress,
   tone = 'primary',
+  icon,
 }: {
   title: string;
   subtitle?: string;
   onPress: () => void;
   tone?: 'primary' | 'accent' | 'success' | 'navy';
+  icon?: React.ReactNode;
 }) {
   const bg =
     tone === 'accent'
@@ -122,6 +124,7 @@ export function ActionTile({
       onPress={onPress}
       style={({ pressed }) => [styles.tile, { backgroundColor: bg, opacity: pressed ? 0.9 : 1 }]}
     >
+      {icon ? <View style={{ marginBottom: 8 }}>{icon}</View> : null}
       <Text style={[styles.tileTitle, { color: titleColor }]}>{title}</Text>
       {subtitle ? <Text style={styles.tileSub}>{subtitle}</Text> : null}
     </Pressable>
@@ -143,13 +146,23 @@ export function Metric({
   );
 }
 
-export function Input(props: React.ComponentProps<typeof TextInput>) {
+export function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <Text style={styles.fieldLabel}>{children}</Text>;
+}
+
+export function Input({
+  label,
+  ...props
+}: React.ComponentProps<typeof TextInput> & { label?: string }) {
   return (
-    <TextInput
-      {...props}
-      placeholderTextColor={colors.muted}
-      style={[styles.input, props.style]}
-    />
+    <View style={{ marginBottom: spacing.sm }}>
+      {label ? <FieldLabel>{label}</FieldLabel> : null}
+      <TextInput
+        {...props}
+        placeholderTextColor={colors.muted}
+        style={[styles.input, { marginBottom: 0 }, props.style]}
+      />
+    </View>
   );
 }
 
@@ -251,6 +264,12 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   muted: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.navy,
+    marginBottom: 6,
+  },
   button: {
     minHeight: 50,
     borderRadius: radius.md,

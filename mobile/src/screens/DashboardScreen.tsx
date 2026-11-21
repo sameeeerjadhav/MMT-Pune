@@ -1,10 +1,17 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { dashboardApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import {
+  ChartIcon,
+  CubeIcon,
+  DocIcon,
+  OutIcon,
+  RackIcon,
+  ScanIcon,
+} from '../components/icons';
 import {
   ActionTile,
   Badge,
@@ -16,12 +23,13 @@ import {
   SectionLabel,
 } from '../components/ui';
 import { colors } from '../theme/tokens';
+import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { canAccess, roleLabel } from '../utils/roles';
 
 export default function DashboardScreen() {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
-  const insets = useSafeAreaInsets();
+  const scrollPad = useTabScrollPadding(28);
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -47,15 +55,39 @@ export default function DashboardScreen() {
 
   const actions = useMemo(() => {
     const role = user?.role;
-    const items: { title: string; subtitle: string; tab: string; tone: any }[] = [];
+    const items: {
+      title: string;
+      subtitle: string;
+      tab: string;
+      tone: 'primary' | 'accent' | 'success' | 'navy';
+      icon: React.ReactNode;
+    }[] = [];
     if (canAccess(role, 'scanner')) {
-      items.push({ title: 'Scan', subtitle: 'Find stock fast', tab: 'Scanner', tone: 'primary' });
+      items.push({
+        title: 'Scan',
+        subtitle: 'Find stock fast',
+        tab: 'Scanner',
+        tone: 'primary',
+        icon: <ScanIcon size={22} color={colors.primaryDark} />,
+      });
     }
     if (canAccess(role, 'withdrawal')) {
-      items.push({ title: 'Withdraw', subtitle: 'Ship / assemble', tab: 'Withdrawal', tone: 'accent' });
+      items.push({
+        title: 'Withdraw',
+        subtitle: 'Ship / assemble',
+        tab: 'Withdrawal',
+        tone: 'accent',
+        icon: <OutIcon size={22} color={colors.accent} />,
+      });
     }
     if (canAccess(role, 'warehouse')) {
-      items.push({ title: 'Racks', subtitle: 'Allocate / move', tab: 'Warehouse', tone: 'navy' });
+      items.push({
+        title: 'Racks',
+        subtitle: 'Allocate / move',
+        tab: 'Warehouse',
+        tone: 'navy',
+        icon: <RackIcon size={22} color={colors.navy} />,
+      });
     }
     if (canAccess(role, 'grn')) {
       items.push({
@@ -63,13 +95,26 @@ export default function DashboardScreen() {
         subtitle: canAccess(role, 'grnImport') ? 'Receive & import' : 'View receipts',
         tab: 'GRN',
         tone: 'success',
+        icon: <DocIcon size={22} color={colors.success} />,
       });
     }
     if (canAccess(role, 'reports')) {
-      items.push({ title: 'Reports', subtitle: 'Stock & FIFO', tab: 'Reports', tone: 'navy' });
+      items.push({
+        title: 'Reports',
+        subtitle: 'Stock & FIFO',
+        tab: 'Reports',
+        tone: 'navy',
+        icon: <ChartIcon size={22} color={colors.navy} />,
+      });
     }
     if (canAccess(role, 'inventory')) {
-      items.push({ title: 'Inventory', subtitle: 'Batches & units', tab: 'Inventory', tone: 'primary' });
+      items.push({
+        title: 'Inventory',
+        subtitle: 'Batches & units',
+        tab: 'Inventory',
+        tone: 'primary',
+        icon: <CubeIcon size={22} color={colors.primaryDark} />,
+      });
     }
     return items.slice(0, 6);
   }, [user?.role]);
@@ -80,7 +125,7 @@ export default function DashboardScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingTop: insets.top + 12, paddingBottom: 36 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
       >
         <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12, letterSpacing: 0.7 }}>
@@ -88,10 +133,10 @@ export default function DashboardScreen() {
         </Text>
         <Text
           style={{
-            fontSize: 30,
+            fontSize: 24,
             fontWeight: '800',
             color: colors.navy,
-            letterSpacing: -0.5,
+            letterSpacing: -0.4,
             marginTop: 4,
           }}
         >
@@ -113,7 +158,17 @@ export default function DashboardScreen() {
               title={a.title}
               subtitle={a.subtitle}
               tone={a.tone}
-              onPress={() => navigation.navigate(a.tab)}
+              icon={a.icon}
+              onPress={() => {
+                if (a.tab === 'Withdrawal') {
+                  navigation.navigate('Withdrawal', {
+                    screen: 'WithdrawalMain',
+                    params: { batchId: undefined, unitId: undefined, resetKey: Date.now() },
+                  });
+                  return;
+                }
+                navigation.navigate(a.tab);
+              }}
             />
           ))}
         </View>

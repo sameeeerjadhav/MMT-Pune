@@ -3,8 +3,10 @@ import { ScrollView, Text, View } from 'react-native';
 import { reportsApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle, Title } from '../components/ui';
+import { ChartIcon } from '../components/icons';
+import { Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle } from '../components/ui';
 import { colors } from '../theme/tokens';
+import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { canAccess } from '../utils/roles';
 
 function Row({ children }: { children: React.ReactNode }) {
@@ -73,8 +75,19 @@ function renderReport(title: string, data: any) {
               #{w.id} · {w.purpose}
             </Text>
             <Muted>
-              {w.user__username || '—'} · {String(w.created_at).slice(0, 19)} · {w.reference || 'no ref'}
+              By {w.user_name || w.user__username || '—'}
+              {w.user_role ? ` (${w.user_role})` : ''}
+              {w.user_employee_id ? ` · emp ${w.user_employee_id}` : ''}
             </Muted>
+            <Muted>
+              {String(w.created_at).replace('T', ' ').slice(0, 19)} · {w.reference || 'no ref'}
+            </Muted>
+            {(w.lines || []).slice(0, 3).map((l: any, idx: number) => (
+              <Muted key={`${w.id}-l-${idx}`}>
+                · {l.batch_code || l.unit_code} · {l.item_name || 'item'} · qty {l.quantity}
+                {l.fifo_override ? ' · OVERRIDE' : ''}
+              </Muted>
+            ))}
           </Row>
         ))}
       </Card>
@@ -128,10 +141,13 @@ function renderReport(title: string, data: any) {
 
 export default function ReportsScreen() {
   const { user } = useAuth();
+  const scrollPad = useTabScrollPadding(28);
   const [data, setData] = useState<any>(null);
   const [title, setTitle] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfMsg, setPdfMsg] = useState('');
 
   if (!canAccess(user?.role, 'reports')) {
     return <ErrorState message="Reports are limited to supervisors and admins." />;
@@ -139,6 +155,7 @@ export default function ReportsScreen() {
 
   const run = async (name: string, fn: () => Promise<any>) => {
     setError('');
+    setPdfMsg('');
     setLoading(true);
     try {
       const res = await fn();
@@ -152,17 +169,41 @@ export default function ReportsScreen() {
     }
   };
 
+  const downloadWithdrawalsPdf = async () => {
+    setPdfMsg('');
+    setPdfLoading(true);
+    try {
+      const { downloadAndSharePdf } = await import('../utils/downloadPdf');
+      await downloadAndSharePdf(reportsApi.withdrawalsPdfPath(), 'withdrawal-report.pdf');
+      setPdfMsg('Withdrawal PDF ready to share / save');
+      setTitle('Withdrawals');
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
   return (
     <Screen>
-      <ScrollView>
-        <Title>Reports</Title>
-        <Muted>Live aggregates from PostgreSQL via the API.</Muted>
+      <ScrollView contentContainerStyle={{ paddingBottom: scrollPad }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <ChartIcon size={22} color={colors.primaryDark} />
+          <Muted>Live aggregates from PostgreSQL via the API.</Muted>
+        </View>
         <Button label="Current stock" onPress={() => run('Stock', reportsApi.stock)} />
         <Button label="GRN report" variant="secondary" onPress={() => run('GRN', reportsApi.grn)} />
         <Button label="Withdrawals" variant="secondary" onPress={() => run('Withdrawals', reportsApi.withdrawals)} />
+        <Button
+          label="Download withdrawals PDF"
+          variant="secondary"
+          loading={pdfLoading}
+          onPress={downloadWithdrawalsPdf}
+        />
         <Button label="Rack occupancy" variant="secondary" onPress={() => run('Occupancy', reportsApi.occupancy)} />
         <Button label="FIFO violations" variant="secondary" onPress={() => run('FIFO', reportsApi.fifo)} />
         {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
+        {pdfMsg ? <Muted>{pdfMsg}</Muted> : null}
         {loading ? <LoadingState /> : renderReport(title, data)}
       </ScrollView>
     </Screen>

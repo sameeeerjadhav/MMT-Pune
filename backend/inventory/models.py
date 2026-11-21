@@ -37,6 +37,7 @@ class Item(models.Model):
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name='items')
     inventory_type = models.CharField(max_length=16, choices=InventoryType.choices)
     uom = models.CharField(max_length=20, default='EA')
+    image = models.ImageField(upload_to='items/%Y/%m/', blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

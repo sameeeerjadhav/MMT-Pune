@@ -25,10 +25,35 @@ class VendorSerializer(serializers.ModelSerializer):
 
 class ItemSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Item
-        fields = '__all__'
+        fields = (
+            'id',
+            'item_code',
+            'name',
+            'description',
+            'category',
+            'category_name',
+            'inventory_type',
+            'uom',
+            'image',
+            'image_url',
+            'is_active',
+            'created_at',
+            'updated_at',
+        )
+        read_only_fields = ('image',)
+
+    def get_image_url(self, obj):
+        if not obj.image:
+            return None
+        request = self.context.get('request')
+        url = obj.image.url
+        if request is not None:
+            return request.build_absolute_uri(url)
+        return url
 
 
 class StockAllocationSerializer(serializers.ModelSerializer):
