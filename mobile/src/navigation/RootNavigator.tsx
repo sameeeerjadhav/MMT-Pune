@@ -149,7 +149,7 @@ function MainTabs() {
           borderTopColor: colors.borderSoft,
           borderTopWidth: 1,
           elevation: 12,
-          shadowColor: '#0B1F33',
+          shadowColor: colors.navy,
           shadowOpacity: 0.1,
           shadowRadius: 10,
           shadowOffset: { width: 0, height: -3 },

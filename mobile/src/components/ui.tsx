@@ -2,6 +2,7 @@ import React from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -219,20 +220,103 @@ export function SearchInput({
   );
 }
 
-/** Red indicator for deactivated master-data rows. */
-export function InactiveDot({ active = true, size = 8 }: { active?: boolean; size?: number }) {
-  if (active !== false) return null;
+/** Fixed-height scrollable picker so long lists don’t blow up the page. */
+export function SelectList({
+  children,
+  maxHeight = 200,
+  emptyLabel = 'No results',
+  count,
+}: {
+  children: React.ReactNode;
+  maxHeight?: number;
+  emptyLabel?: string;
+  count?: number;
+}) {
+  const empty = count === 0;
   return (
-    <View
-      accessibilityLabel="Deactivated"
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: colors.danger,
-        marginRight: 6,
-      }}
-    />
+    <View style={[styles.selectList, { maxHeight }]}>
+      {empty ? (
+        <View style={{ padding: 12 }}>
+          <Muted>{emptyLabel}</Muted>
+        </View>
+      ) : (
+        <ScrollView
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator
+        >
+          {children}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+/** One selectable row inside SelectList. */
+export function SelectRow({
+  label,
+  subtitle,
+  selected,
+  onPress,
+  trailing,
+}: {
+  label: string;
+  subtitle?: string;
+  selected?: boolean;
+  onPress: () => void;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.selectRow,
+        selected && styles.selectRowSelected,
+        pressed && { opacity: 0.85 },
+      ]}
+    >
+      <View
+        style={[
+          styles.selectRadio,
+          selected && { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+        ]}
+      >
+        {selected ? <View style={styles.selectRadioDot} /> : null}
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text
+          numberOfLines={1}
+          style={{
+            fontWeight: selected ? '800' : '600',
+            fontSize: 14,
+            color: selected ? colors.primaryDark : colors.navy,
+          }}
+        >
+          {label}
+        </Text>
+        {subtitle ? (
+          <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {trailing}
+    </Pressable>
+  );
+}
+
+/** Compact summary of current picks. */
+export function SelectionSummary({ lines }: { lines: string[] }) {
+  const visible = lines.filter(Boolean);
+  if (!visible.length) return null;
+  return (
+    <View style={styles.selectionSummary}>
+      {visible.map((line) => (
+        <Text key={line} style={styles.selectionSummaryText}>
+          {line}
+        </Text>
+      ))}
+    </View>
   );
 }
 
@@ -520,6 +604,56 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 20,
     marginTop: -1,
+  },
+  selectList: {
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
+    overflow: 'hidden',
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+    paddingVertical: 2,
+  },
+  selectRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSoft,
+  },
+  selectRowSelected: {
+    backgroundColor: colors.primarySoft,
+  },
+  selectRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectRadioDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+  },
+  selectionSummary: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.md,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: spacing.sm,
+    gap: 4,
+  },
+  selectionSummaryText: {
+    color: colors.primaryDark,
+    fontWeight: '700',
+    fontSize: 13,
   },
   badge: {
     alignSelf: 'flex-start',
