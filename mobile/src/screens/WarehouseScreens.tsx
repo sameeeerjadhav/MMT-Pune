@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { warehouseApi, inventoryApi } from '../api/endpoints';
@@ -14,20 +14,32 @@ export function WarehouseListScreen({ navigation }: any) {
   const { user } = useAuth();
   const scrollPad = useTabScrollPadding(28);
   const canCreate = canAccess(user?.role, 'createRack');
+  const canEditFloor = canAccess(user?.role, 'editFloorLayout');
   const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [floors, setFloors] = useState<any[]>([]);
   const [racks, setRacks] = useState<any[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
+  const [showCreateRack, setShowCreateRack] = useState(false);
+  const [showCreateFloor, setShowCreateFloor] = useState(false);
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
+  const [floorCode, setFloorCode] = useState('');
+  const [floorName, setFloorName] = useState('');
+  const [floorRows, setFloorRows] = useState('3');
+  const [floorCols, setFloorCols] = useState('4');
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [wh, rackRes] = await Promise.all([warehouseApi.warehouses(), warehouseApi.racks()]);
+      const [wh, floorRes, rackRes] = await Promise.all([
+        warehouseApi.warehouses(),
+        warehouseApi.floors(),
+        warehouseApi.racks(),
+      ]);
       setWarehouses(wh.data);
+      setFloors(floorRes.data);
       setRacks(rackRes.data);
       setSelectedWarehouse((prev) => prev ?? (wh.data[0]?.id ?? null));
       setError('');
@@ -43,6 +55,10 @@ export function WarehouseListScreen({ navigation }: any) {
       load();
     }, [load])
   );
+
+  const filteredFloors = selectedWarehouse
+    ? floors.filter((f) => f.warehouse === selectedWarehouse || f.warehouse_id === selectedWarehouse)
+    : floors;
 
   const filteredRacks = selectedWarehouse
     ? racks.filter((r) => r.warehouse === selectedWarehouse || r.warehouse_id === selectedWarehouse)
@@ -63,7 +79,7 @@ export function WarehouseListScreen({ navigation }: any) {
       });
       setNewCode('');
       setNewName('');
-      setShowCreate(false);
+      setShowCreateRack(false);
       await load();
     } catch (e) {
       setError(getErrorMessage(e));
@@ -72,14 +88,53 @@ export function WarehouseListScreen({ navigation }: any) {
     }
   };
 
-  if (loading && !warehouses.length && !racks.length) return <LoadingState />;
-  if (error && !racks.length && !warehouses.length) return <ErrorState message={error} onRetry={load} />;
+  const createFloor = async () => {
+    if (!selectedWarehouse || !floorCode.trim()) {
+      setError('Select a warehouse and enter a floor code');
+      return;
+    }
+    const rows = parseInt(floorRows, 10);
+    const cols = parseInt(floorCols, 10);
+    if (!rows || !cols) {
+      setError('Enter valid row and column counts');
+      return;
+    }
+    setCreating(true);
+    setError('');
+    try {
+      await warehouseApi.createFloor({
+        warehouse_id: selectedWarehouse,
+        code: floorCode.trim().toUpperCase(),
+        name: floorName.trim() || floorCode.trim().toUpperCase(),
+        row_count: rows,
+        column_count: cols,
+      });
+      setFloorCode('');
+      setFloorName('');
+      setShowCreateFloor(false);
+      await load();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (loading && !warehouses.length && !floors.length) return <LoadingState />;
+  if (error && !floors.length && !warehouses.length) return <ErrorState message={error} onRetry={load} />;
+
+  const roleHint =
+    user?.role === 'ADMIN'
+      ? 'Admin: create floors, set rows × columns, place large racks, then manage stock.'
+      : user?.role === 'SUPERVISOR'
+        ? 'Supervisor: set floor layouts and place racks; guide allocate / transfer on the floor.'
+        : 'Employee: open a floor map to find which big rack holds stock, then allocate or transfer.';
 
   const header = (
     <View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 }}>
         <RackIcon size={22} color={colors.primaryDark} />
-        <Muted>Pick a warehouse, open a rack map (rows × columns), then allocate or transfer stock.</Muted>
+        <Muted>{roleHint}</Muted>
       </View>
 
       <Card>
@@ -121,27 +176,69 @@ export function WarehouseListScreen({ navigation }: any) {
           />
         </View>
       </View>
+
+      {canEditFloor ? (
+        <Button
+          label={showCreateFloor ? 'Cancel new floor' : 'Create floor'}
+          variant="ghost"
+          onPress={() => {
+            setShowCreateFloor((v) => !v);
+            setShowCreateRack(false);
+          }}
+        />
+      ) : null}
+
+      {showCreateFloor && canEditFloor ? (
+        <Card>
+          <Subtitle>New floor</Subtitle>
+          <Input
+            placeholder="Floor code (e.g. G or L1)"
+            value={floorCode}
+            onChangeText={setFloorCode}
+            autoCapitalize="characters"
+          />
+          <Input placeholder="Floor name" value={floorName} onChangeText={setFloorName} />
+          <Input placeholder="Rows of big racks" value={floorRows} onChangeText={setFloorRows} keyboardType="number-pad" />
+          <Input
+            placeholder="Columns of big racks"
+            value={floorCols}
+            onChangeText={setFloorCols}
+            keyboardType="number-pad"
+          />
+          <Button label="Save floor" onPress={createFloor} loading={creating} />
+        </Card>
+      ) : null}
+
       {canCreate ? (
         <Button
-          label={showCreate ? 'Cancel new rack' : 'Create rack'}
+          label={showCreateRack ? 'Cancel new rack' : 'Create rack'}
           variant="ghost"
-          onPress={() => setShowCreate((v) => !v)}
+          onPress={() => {
+            setShowCreateRack((v) => !v);
+            setShowCreateFloor(false);
+          }}
         />
       ) : (
-        <Muted>Rack creation is available to supervisors and admins.</Muted>
+        <Muted>Floor layout and rack placement are managed by supervisors and admins.</Muted>
       )}
 
-      {showCreate && canCreate ? (
+      {showCreateRack && canCreate ? (
         <Card>
-          <Subtitle>New rack</Subtitle>
-          <Input placeholder="Rack code (e.g. R-11)" value={newCode} onChangeText={setNewCode} autoCapitalize="characters" />
+          <Subtitle>New large rack</Subtitle>
+          <Input
+            placeholder="Rack code (e.g. R-11)"
+            value={newCode}
+            onChangeText={setNewCode}
+            autoCapitalize="characters"
+          />
           <Input placeholder="Rack name" value={newName} onChangeText={setNewName} />
           <Button label="Save rack" onPress={createRack} loading={creating} />
         </Card>
       ) : null}
 
       {error ? <Text style={{ color: colors.danger, marginBottom: 8 }}>{error}</Text> : null}
-      <Subtitle>Racks ({filteredRacks.length})</Subtitle>
+      <Subtitle>Floors ({filteredFloors.length})</Subtitle>
+      <Muted>Open a floor to see the big rack grid for that level.</Muted>
     </View>
   );
 
@@ -149,23 +246,54 @@ export function WarehouseListScreen({ navigation }: any) {
     <Screen>
       <FlatList
         style={{ flex: 1 }}
-        data={filteredRacks}
+        data={filteredFloors}
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={{ paddingBottom: scrollPad }}
         ListHeaderComponent={header}
+        ListEmptyComponent={
+          <Card>
+            <Muted>
+              {canEditFloor
+                ? 'No floors yet. Create one and set how many rack rows and columns it has.'
+                : 'No floors configured yet. Ask an admin or supervisor to set them up.'}
+            </Muted>
+          </Card>
+        }
         renderItem={({ item }) => (
-          <Pressable onPress={() => navigation.navigate('RackMap', { id: item.id })}>
+          <Pressable onPress={() => navigation.navigate('FloorMap', { id: item.id })}>
             <Card>
               <Text style={{ fontWeight: '700' }}>
                 {item.code} — {item.name}
               </Text>
               <Muted>
-                {item.warehouse_code} | Barcode {item.barcode_value}
+                Level {item.level} · Grid {item.row_count}×{item.column_count} · {item.warehouse_code}
               </Muted>
-              <Muted>Tap to open visual row/column stock map</Muted>
+              <Muted>Tap to open floor rack visualization</Muted>
             </Card>
           </Pressable>
         )}
+        ListFooterComponent={
+          <View style={{ marginTop: 16 }}>
+            <Subtitle>All racks ({filteredRacks.length})</Subtitle>
+            <Muted>Shortcut into a rack’s shelf × position map.</Muted>
+            {filteredRacks.map((item) => (
+              <Pressable key={item.id} onPress={() => navigation.navigate('RackMap', { id: item.id })}>
+                <Card>
+                  <Text style={{ fontWeight: '700' }}>
+                    {item.code} — {item.name}
+                  </Text>
+                  <Muted>
+                    {item.warehouse_code}
+                    {item.floor_code ? ` · Floor ${item.floor_code}` : ''}
+                    {item.row_index && item.column_index
+                      ? ` · Bay R${item.row_index}-C${item.column_index}`
+                      : ' · Not on floor grid'}
+                  </Muted>
+                </Card>
+              </Pressable>
+            ))}
+          </View>
+        }
       />
     </Screen>
   );

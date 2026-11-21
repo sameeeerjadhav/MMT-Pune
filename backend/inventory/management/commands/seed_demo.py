@@ -17,8 +17,8 @@ from inventory.models import (
     StockAllocation,
     Vendor,
 )
-from warehouses.models import Rack, RackPosition, RackTransfer, Shelf, Warehouse
-from warehouses.services import create_rack
+from warehouses.models import Floor, Rack, RackPosition, RackTransfer, Shelf, Warehouse
+from warehouses.services import create_floor, create_rack, place_rack_on_floor
 from withdrawals.models import Withdrawal, WithdrawalLine
 
 
@@ -85,13 +85,69 @@ class Command(BaseCommand):
             wh, _ = Warehouse.objects.get_or_create(code=code, defaults={'name': name, 'address': f'{name} Yard'})
             warehouses.append(wh)
 
-        # Clear racks if re-seeding lightly — create 10 racks across warehouses
+        # Floors with admin-defined rack grids (rows × columns)
+        floors_by_wh = {}
+        floor_defs = [
+            # warehouse index, code, name, level, rows, cols
+            (0, 'G', 'Ground Floor', 1, 3, 4),
+            (0, 'L1', 'Level 1', 2, 2, 3),
+            (1, 'G', 'Ground Floor', 1, 2, 3),
+            (2, 'G', 'Staging Floor', 1, 2, 2),
+        ]
+        for wh_idx, code, name, level, rows, cols in floor_defs:
+            wh = warehouses[wh_idx]
+            floor, created = Floor.objects.get_or_create(
+                warehouse=wh,
+                code=code,
+                defaults={
+                    'name': name,
+                    'level': level,
+                    'row_count': rows,
+                    'column_count': cols,
+                    'description': f'{name} rack grid {rows}×{cols}',
+                },
+            )
+            if not created:
+                floor.row_count = rows
+                floor.column_count = cols
+                floor.name = name
+                floor.level = level
+                floor.save(update_fields=['row_count', 'column_count', 'name', 'level', 'updated_at'])
+            floors_by_wh.setdefault(wh.id, []).append(floor)
+
+        # Create 10 racks across warehouses and place them on floor grids
         if Rack.objects.count() < 10:
             for i in range(1, 11):
                 wh = warehouses[(i - 1) % 3]
                 code = f'R-{i:02d}'
                 if not Rack.objects.filter(warehouse=wh, code=code).exists():
                     create_rack(warehouse_id=wh.id, code=code, name=f'Rack {i:02d}')
+
+        # Place racks onto floors in reading order (row-major)
+        for wh in warehouses:
+            floor_list = floors_by_wh.get(wh.id) or list(Floor.objects.filter(warehouse=wh))
+            if not floor_list:
+                continue
+            racks = list(Rack.objects.filter(warehouse=wh, is_active=True).order_by('code'))
+            rack_idx = 0
+            for floor in floor_list:
+                for r in range(1, floor.row_count + 1):
+                    for c in range(1, floor.column_count + 1):
+                        if rack_idx >= len(racks):
+                            break
+                        rack = racks[rack_idx]
+                        rack_idx += 1
+                        if rack.floor_id == floor.id and rack.row_index == r and rack.column_index == c:
+                            continue
+                        try:
+                            place_rack_on_floor(
+                                floor_id=floor.id, rack_id=rack.id, row_index=r, column_index=c
+                            )
+                        except Exception:
+                            # Skip conflicts on re-seed
+                            pass
+                    if rack_idx >= len(racks):
+                        break
 
         categories = []
         for code, name in [

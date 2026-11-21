@@ -11,6 +11,7 @@ export type AppModule =
   | 'reports'
   | 'settings'
   | 'createRack'
+  | 'editFloorLayout'
   | 'fifoOverride';
 
 const ALL_STAFF: RoleCode[] = ['ADMIN', 'SUPERVISOR', 'WAREHOUSE_EMPLOYEE'];
@@ -27,6 +28,7 @@ const MODULE_ROLES: Record<AppModule, RoleCode[]> = {
   grnImport: LEADS,
   reports: LEADS,
   createRack: LEADS,
+  editFloorLayout: LEADS,
   fifoOverride: LEADS,
 };
 
@@ -51,11 +53,11 @@ export function roleLabel(role: RoleCode | undefined | null): string {
 export function roleBlurb(role: RoleCode | undefined | null): string {
   switch (role) {
     case 'ADMIN':
-      return 'Full control: inventory, rack maps, GRN import, reports, and FIFO overrides.';
+      return 'Full control: floor grids, rack placement, inventory, GRN, reports, and FIFO overrides.';
     case 'SUPERVISOR':
-      return 'Floor lead: operations, GRN import, rack setup, reports, and FIFO overrides.';
+      return 'Floor lead: set rows/columns, place big racks, GRN import, reports, and FIFO overrides.';
     case 'WAREHOUSE_EMPLOYEE':
-      return 'Floor ops: scan, allocate, transfer, withdraw. No import, reports, or FIFO override.';
+      return 'Floor ops: open floor maps, find stock in big racks, allocate, transfer, withdraw.';
     default:
       return 'Signed in.';
   }
@@ -85,7 +87,7 @@ export function canAccessTab(role: RoleCode | undefined | null, tabName: string)
 export function primaryTabsForRole(role: RoleCode | undefined | null): string[] {
   // Pattern: [left, left, Scanner, right, More]
   if (role === 'ADMIN') {
-    // Racks tab = visual shelf/position map + stock management
+    // Floors tab = floor rack grid + section maps + stock management
     return ['Dashboard', 'Inventory', 'Scanner', 'Warehouse', 'More'];
   }
   if (role === 'SUPERVISOR') {
@@ -121,8 +123,8 @@ export function moreLinksForRole(role: RoleCode | undefined | null): MoreLink[] 
     },
     {
       key: 'warehouse',
-      title: 'Racks map',
-      subtitle: 'Visual rows/columns and stock allocate / transfer',
+      title: 'Floor & rack maps',
+      subtitle: 'Floor grids of big racks, then shelf sections and stock',
       tab: 'Warehouse',
       module: 'warehouse',
     },

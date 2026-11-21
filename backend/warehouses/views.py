@@ -8,9 +8,25 @@ from rest_framework.views import APIView
 from accounts.permissions import IsSupervisorOrAdmin, IsWarehouseStaff
 from inventory.models import StockAllocation
 from inventory.serializers import StockAllocationSerializer
-from warehouses.models import Rack, RackPosition, Warehouse
-from warehouses.serializers import RackSerializer, RackTransferSerializer, WarehouseSerializer
-from warehouses.services import allocate_stock, create_rack, transfer_stock
+from warehouses.models import Floor, Rack, RackPosition, Warehouse
+from warehouses.serializers import (
+    CreateFloorSerializer,
+    FloorLayoutSerializer,
+    FloorSerializer,
+    PlaceRackSerializer,
+    RackSerializer,
+    RackTransferSerializer,
+    WarehouseSerializer,
+)
+from warehouses.services import (
+    allocate_stock,
+    build_floor_map,
+    create_floor,
+    create_rack,
+    place_rack_on_floor,
+    transfer_stock,
+    update_floor_layout,
+)
 
 
 def _natural_key(value: str):
@@ -28,11 +44,79 @@ class WarehouseListCreateView(generics.ListCreateAPIView):
         return super().get_permissions()
 
 
+class FloorListCreateView(generics.ListCreateAPIView):
+    serializer_class = FloorSerializer
+
+    def get_queryset(self):
+        qs = Floor.objects.select_related('warehouse').filter(is_active=True).order_by(
+            'warehouse_id', 'level', 'code'
+        )
+        warehouse_id = self.request.query_params.get('warehouse')
+        if warehouse_id:
+            qs = qs.filter(warehouse_id=warehouse_id)
+        return qs
+
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsSupervisorOrAdmin()]
+        return super().get_permissions()
+
+    def create(self, request, *args, **kwargs):
+        ser = CreateFloorSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        floor = create_floor(**ser.validated_data)
+        return Response(FloorSerializer(floor).data, status=status.HTTP_201_CREATED)
+
+
+class FloorDetailView(generics.RetrieveAPIView):
+    queryset = Floor.objects.select_related('warehouse').all()
+    serializer_class = FloorSerializer
+
+
+class FloorMapView(APIView):
+    """Floor-level visualization: large racks on a row ? column grid with stock."""
+
+    def get(self, request, pk):
+        floor = get_object_or_404(Floor.objects.select_related('warehouse'), pk=pk)
+        role = getattr(request.user, 'role_code', None)
+        return Response(build_floor_map(floor, role=role))
+
+
+class FloorLayoutView(APIView):
+    permission_classes = [IsSupervisorOrAdmin]
+
+    def patch(self, request, pk):
+        ser = FloorLayoutSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        floor = update_floor_layout(floor_id=pk, **ser.validated_data)
+        return Response(FloorSerializer(floor).data)
+
+
+class FloorPlaceRackView(APIView):
+    permission_classes = [IsSupervisorOrAdmin]
+
+    def post(self, request, pk):
+        ser = PlaceRackSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        rack = place_rack_on_floor(floor_id=pk, **ser.validated_data)
+        return Response(RackSerializer(rack).data)
+
+
 class RackListCreateView(generics.ListCreateAPIView):
-    queryset = Rack.objects.select_related('warehouse', 'barcode').prefetch_related(
+    queryset = Rack.objects.select_related('warehouse', 'floor', 'barcode').prefetch_related(
         'shelves__positions'
     )
     serializer_class = RackSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        warehouse_id = self.request.query_params.get('warehouse')
+        floor_id = self.request.query_params.get('floor')
+        if warehouse_id:
+            qs = qs.filter(warehouse_id=warehouse_id)
+        if floor_id:
+            qs = qs.filter(floor_id=floor_id)
+        return qs
 
     def get_permissions(self):
         if self.request.method == 'POST':
@@ -45,12 +129,15 @@ class RackListCreateView(generics.ListCreateAPIView):
             code=request.data['code'],
             name=request.data.get('name') or request.data['code'],
             shelves=request.data.get('shelves'),
+            floor_id=request.data.get('floor_id') or request.data.get('floor'),
+            row_index=request.data.get('row_index'),
+            column_index=request.data.get('column_index'),
         )
         return Response(RackSerializer(rack).data, status=status.HTTP_201_CREATED)
 
 
 class RackDetailView(generics.RetrieveAPIView):
-    queryset = Rack.objects.select_related('warehouse', 'barcode').prefetch_related(
+    queryset = Rack.objects.select_related('warehouse', 'floor', 'barcode').prefetch_related(
         'shelves__positions'
     )
     serializer_class = RackSerializer

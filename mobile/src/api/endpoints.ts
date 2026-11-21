@@ -49,7 +49,15 @@ export const grnApi = {
 
 export const warehouseApi = {
   warehouses: () => api.get('/warehouses/'),
-  racks: () => api.get('/racks/'),
+  floors: (params?: { warehouse?: number }) => api.get('/floors/', { params }),
+  floor: (id: number) => api.get(`/floors/${id}/`),
+  floorMap: (id: number) => api.get(`/floors/${id}/map/`),
+  createFloor: (payload: unknown) => api.post('/floors/', payload),
+  updateFloorLayout: (id: number, payload: unknown) =>
+    api.patch(`/floors/${id}/layout/`, payload),
+  placeRack: (floorId: number, payload: unknown) =>
+    api.post(`/floors/${floorId}/place-rack/`, payload),
+  racks: (params?: { warehouse?: number; floor?: number }) => api.get('/racks/', { params }),
   rack: (id: number) => api.get(`/racks/${id}/`),
   rackInventory: (id: number) => api.get(`/racks/${id}/inventory/`),
   rackMap: (id: number) => api.get(`/racks/${id}/map/`),

@@ -6,13 +6,258 @@ from django.db.models import Sum
 from barcodes.services import create_barcode
 from config.exceptions import ApiError
 from inventory.models import InventoryBatch, InventoryTransaction, InventoryUnit, StockAllocation
-from warehouses.models import Rack, RackPosition, RackTransfer, Shelf, Warehouse
+from warehouses.models import Floor, Rack, RackPosition, RackTransfer, Shelf, Warehouse
 
 
 @transaction.atomic
-def create_rack(*, warehouse_id, code, name, shelves=None):
+def create_floor(
+    *,
+    warehouse_id,
+    code,
+    name,
+    level=1,
+    row_count=4,
+    column_count=5,
+    description='',
+):
     warehouse = Warehouse.objects.get(pk=warehouse_id)
-    rack = Rack.objects.create(warehouse=warehouse, code=code, name=name)
+    if Floor.objects.filter(warehouse=warehouse, code=code).exists():
+        raise ApiError('DUPLICATE', f'Floor {code} already exists in this warehouse', status_code=409)
+    return Floor.objects.create(
+        warehouse=warehouse,
+        code=code.upper(),
+        name=name,
+        level=level,
+        row_count=row_count,
+        column_count=column_count,
+        description=description or '',
+    )
+
+
+@transaction.atomic
+def update_floor_layout(*, floor_id, row_count, column_count):
+    from django.db.models import Q
+
+    floor = Floor.objects.select_for_update().get(pk=floor_id)
+    # Clear placements that fall outside the new grid.
+    Rack.objects.filter(floor=floor).filter(
+        Q(row_index__gt=row_count) | Q(column_index__gt=column_count)
+    ).update(row_index=None, column_index=None)
+    floor.row_count = row_count
+    floor.column_count = column_count
+    floor.save(update_fields=['row_count', 'column_count', 'updated_at'])
+    return floor
+
+
+@transaction.atomic
+def place_rack_on_floor(*, floor_id, rack_id, row_index, column_index):
+    floor = Floor.objects.select_for_update().get(pk=floor_id)
+    if row_index < 1 or row_index > floor.row_count:
+        raise ApiError('VALIDATION_ERROR', f'row_index must be 1..{floor.row_count}')
+    if column_index < 1 or column_index > floor.column_count:
+        raise ApiError('VALIDATION_ERROR', f'column_index must be 1..{floor.column_count}')
+
+    rack = Rack.objects.select_for_update().get(pk=rack_id)
+    if rack.warehouse_id != floor.warehouse_id:
+        raise ApiError('VALIDATION_ERROR', 'Rack must belong to the same warehouse as the floor')
+
+    conflict = (
+        Rack.objects.select_for_update()
+        .filter(floor=floor, row_index=row_index, column_index=column_index, is_active=True)
+        .exclude(pk=rack.id)
+        .first()
+    )
+    if conflict:
+        raise ApiError(
+            'CELL_OCCUPIED',
+            f'Cell R{row_index}-C{column_index} already has rack {conflict.code}',
+            status_code=409,
+            details={'rack_id': conflict.id, 'rack_code': conflict.code},
+        )
+
+    rack.floor = floor
+    rack.row_index = row_index
+    rack.column_index = column_index
+    rack.save(update_fields=['floor', 'row_index', 'column_index', 'updated_at'])
+    return rack
+
+
+def build_floor_map(floor: Floor, *, role: str | None = None):
+    """Grid visualization: each cell is a large rack bay with occupancy + stock summary."""
+    racks = list(
+        Rack.objects.filter(floor=floor, is_active=True)
+        .select_related('barcode')
+        .prefetch_related('shelves__positions')
+    )
+    rack_by_cell = {
+        (r.row_index, r.column_index): r
+        for r in racks
+        if r.row_index and r.column_index
+    }
+    rack_ids = [r.id for r in racks]
+
+    allocations = (
+        StockAllocation.objects.filter(
+            is_active=True,
+            allocation_type='ACTUAL',
+            position__shelf__rack_id__in=rack_ids,
+        )
+        .select_related('batch__item', 'unit__item', 'position__shelf__rack')
+        .order_by('id')
+    )
+    stock_by_rack: dict[int, list] = {}
+    qty_by_rack: dict[int, Decimal] = {}
+    occupied_sections_by_rack: dict[int, set] = {}
+    for a in allocations:
+        rid = a.position.shelf.rack_id
+        stock_by_rack.setdefault(rid, []).append(
+            {
+                'allocation_id': a.id,
+                'batch_id': a.batch_id,
+                'unit_id': a.unit_id,
+                'batch_code': a.batch.batch_code if a.batch_id else None,
+                'unit_code': a.unit.unit_code if a.unit_id else None,
+                'item_name': (
+                    a.batch.item.name if a.batch_id else a.unit.item.name if a.unit_id else None
+                ),
+                'item_code': (
+                    a.batch.item.item_code
+                    if a.batch_id
+                    else a.unit.item.item_code
+                    if a.unit_id
+                    else None
+                ),
+                'quantity': str(a.quantity) if a.quantity is not None else None,
+                'section': f'{a.position.shelf.code}-{a.position.code}',
+            }
+        )
+        qty_by_rack[rid] = qty_by_rack.get(rid, Decimal('0')) + (a.quantity or Decimal('0'))
+        occupied_sections_by_rack.setdefault(rid, set()).add(a.position_id)
+
+    # Employees get compact stock lists; leads/admins get full section detail.
+    compact = role == 'WAREHOUSE_EMPLOYEE'
+
+    grid = []
+    placed = 0
+    occupied_racks = 0
+    for r in range(1, floor.row_count + 1):
+        row_cells = []
+        for c in range(1, floor.column_count + 1):
+            rack = rack_by_cell.get((r, c))
+            if not rack:
+                row_cells.append(
+                    {
+                        'row_index': r,
+                        'column_index': c,
+                        'cell_code': f'R{r}-C{c}',
+                        'empty': True,
+                        'rack': None,
+                    }
+                )
+                continue
+            placed += 1
+            stock = stock_by_rack.get(rack.id, [])
+            if stock:
+                occupied_racks += 1
+            section_total = sum(len(s.positions.all()) for s in rack.shelves.all())
+            occupied_sections = len(occupied_sections_by_rack.get(rack.id, set()))
+            stock_preview = stock[:3] if compact else stock
+            row_cells.append(
+                {
+                    'row_index': r,
+                    'column_index': c,
+                    'cell_code': f'R{r}-C{c}',
+                    'empty': False,
+                    'rack': {
+                        'id': rack.id,
+                        'code': rack.code,
+                        'name': rack.name,
+                        'barcode_value': rack.barcode.value if rack.barcode_id else None,
+                        'stock_lines': len(stock),
+                        'total_qty': str(qty_by_rack.get(rack.id, Decimal('0'))),
+                        'sections_total': section_total,
+                        'sections_occupied': occupied_sections,
+                        'fill_pct': round((occupied_sections / section_total) * 100) if section_total else 0,
+                        'stock': stock_preview,
+                        'stock_truncated': compact and len(stock) > 3,
+                    },
+                }
+            )
+        grid.append({'row_index': r, 'cells': row_cells})
+
+    placed_ids = {r.id for r in racks if r.row_index and r.column_index}
+    unplaced_on_floor = [
+        {
+            'id': r.id,
+            'code': r.code,
+            'name': r.name,
+            'stock_lines': len(stock_by_rack.get(r.id, [])),
+        }
+        for r in racks
+        if r.id not in placed_ids
+    ]
+
+    # Any warehouse rack not currently sitting on this floor grid can be placed.
+    warehouse_racks = Rack.objects.filter(warehouse_id=floor.warehouse_id, is_active=True).order_by(
+        'code'
+    )
+    available_to_place = [
+        {
+            'id': r.id,
+            'code': r.code,
+            'name': r.name,
+            'floor_id': r.floor_id,
+            'on_this_floor': r.floor_id == floor.id,
+        }
+        for r in warehouse_racks
+        if r.id not in placed_ids
+    ]
+
+    return {
+        'floor': {
+            'id': floor.id,
+            'code': floor.code,
+            'name': floor.name,
+            'level': floor.level,
+            'row_count': floor.row_count,
+            'column_count': floor.column_count,
+            'description': floor.description,
+            'warehouse_id': floor.warehouse_id,
+            'warehouse_code': floor.warehouse.code,
+            'warehouse_name': floor.warehouse.name,
+        },
+        'summary': {
+            'cells': floor.row_count * floor.column_count,
+            'placed_racks': placed,
+            'empty_cells': floor.row_count * floor.column_count - placed,
+            'occupied_racks': occupied_racks,
+            'unplaced_racks': len(unplaced_on_floor),
+        },
+        'viewer_role': role,
+        'can_edit_layout': role in ('ADMIN', 'SUPERVISOR'),
+        'can_manage_stock': role in ('ADMIN', 'SUPERVISOR', 'WAREHOUSE_EMPLOYEE'),
+        'grid': grid,
+        'unplaced_racks': unplaced_on_floor,
+        'available_racks': available_to_place,
+    }
+
+
+@transaction.atomic
+def create_rack(*, warehouse_id, code, name, shelves=None, floor_id=None, row_index=None, column_index=None):
+    warehouse = Warehouse.objects.get(pk=warehouse_id)
+    floor = None
+    if floor_id:
+        floor = Floor.objects.get(pk=floor_id)
+        if floor.warehouse_id != warehouse.id:
+            raise ApiError('VALIDATION_ERROR', 'Floor must belong to the selected warehouse')
+
+    rack = Rack.objects.create(warehouse=warehouse, floor=floor, code=code, name=name)
+    if floor_id and row_index is not None and column_index is not None:
+        place_rack_on_floor(
+            floor_id=floor_id, rack_id=rack.id, row_index=row_index, column_index=column_index
+        )
+        rack.refresh_from_db()
+
     barcode = create_barcode(
         'RACK',
         rack.id,
