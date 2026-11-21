@@ -81,7 +81,7 @@ def check_fifo_batch(batch: InventoryBatch, *, for_update=False):
     return {
         'eligible': False,
         'code': 'FIFO_VIOLATION',
-        'message': 'FIFO VIOLATION: Older stock is available. Please withdraw the older batch first.',
+        'message': 'Older stock is available and should be withdrawn first.',
         'older': payload,
     }
 
@@ -94,7 +94,7 @@ def check_fifo_unit(unit: InventoryUnit, *, for_update=False):
     return {
         'eligible': False,
         'code': 'FIFO_VIOLATION',
-        'message': 'FIFO VIOLATION: Older stock is available. Please withdraw the older batch first.',
+        'message': 'Older stock is available and should be withdrawn first.',
         'older': payload,
     }
 
