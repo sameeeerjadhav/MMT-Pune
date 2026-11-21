@@ -133,7 +133,7 @@ export default function ScannerScreen({ navigation }: any) {
                 {result.fifo && !result.fifo.eligible ? (
                   <FifoAlert message={result.fifo.message} older={result.fifo.older} />
                 ) : (
-                  <Muted>FIFO eligible</Muted>
+                  <Muted>Ready — this is the oldest available stock</Muted>
                 )}
                 <Button
                   label="Withdraw"

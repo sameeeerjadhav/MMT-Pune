@@ -120,11 +120,11 @@ export default function WithdrawalScreen({ route, navigation }: any) {
       return;
     }
     if (fifoBlocked && !canOverride) {
-      setError('FIFO blocked — ask a supervisor or admin to override');
+      setError('Older stock must be used first — ask a supervisor or admin to override');
       return;
     }
     if (fifoBlocked && canOverride && !overrideReason.trim()) {
-      setError('Override reason is required for FIFO override');
+      setError('Add a reason to override and withdraw newer stock first');
       return;
     }
     setLoading(true);
@@ -266,7 +266,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
             {validation.fifo && !validation.fifo.eligible ? (
               <FifoAlert message={validation.fifo.message} older={validation.fifo.older} />
             ) : (
-              <Muted>FIFO OK</Muted>
+              <Muted>Ready — this is the oldest available stock</Muted>
             )}
           </Card>
         ) : null}
@@ -274,9 +274,10 @@ export default function WithdrawalScreen({ route, navigation }: any) {
         {(fifoBlocked || error.includes('FIFO')) && canOverride ? (
           <Card>
             <Subtitle>Supervisor override</Subtitle>
+            <Muted>Only use this if you must take newer stock before older stock.</Muted>
             <Input
               label="Override reason"
-              placeholder="Mandatory reason for FIFO override"
+              placeholder="Why skip older stock?"
               value={overrideReason}
               onChangeText={setOverrideReason}
             />
