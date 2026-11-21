@@ -11,7 +11,8 @@ export type AppModule =
   | 'reports'
   | 'settings'
   | 'createRack'
-  | 'fifoOverride';
+  | 'fifoOverride'
+  | 'manageMasterData';
 
 const ALL_STAFF: RoleCode[] = ['ADMIN', 'SUPERVISOR', 'WAREHOUSE_EMPLOYEE'];
 const LEADS: RoleCode[] = ['ADMIN', 'SUPERVISOR'];
@@ -28,6 +29,7 @@ const MODULE_ROLES: Record<AppModule, RoleCode[]> = {
   reports: LEADS,
   createRack: LEADS,
   fifoOverride: LEADS,
+  manageMasterData: LEADS,
 };
 
 export function canAccess(role: RoleCode | undefined | null, module: AppModule): boolean {
@@ -51,11 +53,11 @@ export function roleLabel(role: RoleCode | undefined | null): string {
 export function roleBlurb(role: RoleCode | undefined | null): string {
   switch (role) {
     case 'ADMIN':
-      return 'Full control: inventory, rack maps, GRN import, reports, and FIFO overrides.';
+      return 'Full control: master data, rack maps, GRN import, reports, and FIFO overrides.';
     case 'SUPERVISOR':
-      return 'Floor lead: operations, GRN import, rack setup, reports, and FIFO overrides.';
+      return 'Floor lead: master data, GRN import, rack setup, reports, and FIFO overrides.';
     case 'WAREHOUSE_EMPLOYEE':
-      return 'Floor ops: scan, allocate, transfer, withdraw. No import, reports, or FIFO override.';
+      return 'Floor ops: scan, allocate, transfer, withdraw. No master-data edits or FIFO override.';
     default:
       return 'Signed in.';
   }

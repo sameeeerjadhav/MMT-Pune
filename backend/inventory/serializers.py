@@ -25,7 +25,13 @@ class VendorSerializer(serializers.ModelSerializer):
 
 class ItemSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
+    category_code = serializers.CharField(source='category.code', read_only=True)
     image_url = serializers.SerializerMethodField()
+    # Optional: create/update can pass category_code to get_or_create category
+    category_code_input = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all(), required=False, allow_null=True
+    )
 
     class Meta:
         model = Item
@@ -36,6 +42,8 @@ class ItemSerializer(serializers.ModelSerializer):
             'description',
             'category',
             'category_name',
+            'category_code',
+            'category_code_input',
             'inventory_type',
             'uom',
             'image',
@@ -54,6 +62,30 @@ class ItemSerializer(serializers.ModelSerializer):
         if request is not None:
             return request.build_absolute_uri(url)
         return url
+
+    def _resolve_category(self, validated_data):
+        code_input = validated_data.pop('category_code_input', None)
+        if code_input:
+            code = code_input.strip().upper()
+            cat, _ = Category.objects.get_or_create(
+                code=code, defaults={'name': code.replace('-', ' ').title()}
+            )
+            validated_data['category'] = cat
+        return validated_data
+
+    def create(self, validated_data):
+        validated_data = self._resolve_category(validated_data)
+        if 'category' not in validated_data:
+            raise serializers.ValidationError({'category': 'category or category_code_input is required'})
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data = self._resolve_category(validated_data)
+        return super().update(instance, validated_data)
+
+
+class TestingStatusSerializer(serializers.Serializer):
+    testing_status = serializers.ChoiceField(choices=['PENDING', 'PASSED', 'FAILED'])
 
 
 class StockAllocationSerializer(serializers.ModelSerializer):

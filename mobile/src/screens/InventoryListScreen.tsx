@@ -3,23 +3,27 @@ import { FlatList, Image, Pressable, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import {
   Badge,
   Button,
   Card,
   ErrorState,
-  Input,
   LoadingState,
   Muted,
   Screen,
+  SearchInput,
   SectionLabel,
 } from '../components/ui';
 import { EmptyBoxIcon } from '../components/icons';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
+import { canAccess } from '../utils/roles';
 
 export default function InventoryListScreen() {
   const navigation = useNavigation<any>();
+  const { user } = useAuth();
+  const canManage = canAccess(user?.role, 'manageMasterData');
   const scrollPad = useTabScrollPadding(28);
   const [q, setQ] = useState('');
   const qRef = useRef(q);
@@ -59,14 +63,20 @@ export default function InventoryListScreen() {
   return (
     <Screen>
       <Muted>Search live batches and units from PostgreSQL.</Muted>
-      <Input
+      <SearchInput
         placeholder="Search item, batch, barcode..."
         value={q}
         onChangeText={setQ}
         onSubmitEditing={() => load(q, true)}
-        returnKeyType="search"
+        onClear={() => {
+          setQ('');
+          load('', true);
+        }}
       />
       <Button label={refreshing ? 'Searching…' : 'Search'} onPress={() => load(q, true)} loading={refreshing} />
+      {canManage ? (
+        <Button label="Manage items" variant="secondary" onPress={() => navigation.navigate('ItemMaster')} />
+      ) : null}
       {error ? <Text style={{ color: colors.danger, marginBottom: 8 }}>{error}</Text> : null}
 
       <FlatList

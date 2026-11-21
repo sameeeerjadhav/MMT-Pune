@@ -5,9 +5,20 @@ import { inventoryApi, withdrawalApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { OutIcon } from '../components/icons';
-import { Button, Card, FifoAlert, Input, LoadingState, Muted, Screen, Subtitle } from '../components/ui';
+import {
+  Button,
+  Card,
+  FifoAlert,
+  Input,
+  LoadingState,
+  Muted,
+  Screen,
+  SearchInput,
+  Subtitle,
+} from '../components/ui';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
+import { canAccess } from '../utils/roles';
 
 export default function WithdrawalScreen({ route, navigation }: any) {
   const { user } = useAuth();
@@ -24,14 +35,17 @@ export default function WithdrawalScreen({ route, navigation }: any) {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
+  const [historyQ, setHistoryQ] = useState('');
+  const historyQRef = useRef(historyQ);
+  historyQRef.current = historyQ;
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState('');
   const syncedParams = useRef('');
 
-  const loadHistory = useCallback(async () => {
+  const loadHistory = useCallback(async (query?: string) => {
     setHistoryError('');
     try {
-      const { data } = await withdrawalApi.list();
+      const { data } = await withdrawalApi.list({ q: (query ?? historyQRef.current) || undefined });
       setHistory(Array.isArray(data) ? data : data.results || []);
     } catch (e) {
       setHistoryError(getErrorMessage(e));
@@ -109,7 +123,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when route params change
   }, [paramBatchId, paramUnitId, resetFormKey]);
 
-  const canOverride = user?.role === 'ADMIN' || user?.role === 'SUPERVISOR';
+  const canOverride = canAccess(user?.role, 'fifoOverride');
   const fifoBlocked = validation?.fifo && validation.fifo.eligible === false;
 
   const confirm = async () => {
@@ -146,7 +160,11 @@ export default function WithdrawalScreen({ route, navigation }: any) {
     } catch (e: any) {
       const details = e?.response?.data?.details;
       if (e?.response?.data?.code === 'FIFO_VIOLATION') {
-        setValidation({ fifo: details || e.response.data });
+        setValidation((prev: any) => ({
+          ...(prev || {}),
+          ...(details && typeof details === 'object' ? details : {}),
+          fifo: details?.fifo || details || e.response.data,
+        }));
       }
       setError(getErrorMessage(e));
     } finally {
@@ -290,6 +308,28 @@ export default function WithdrawalScreen({ route, navigation }: any) {
 
         <Card>
           <Subtitle>Recent withdrawals</Subtitle>
+          <SearchInput
+            placeholder="Search purpose, batch, user..."
+            value={historyQ}
+            onChangeText={setHistoryQ}
+            onSubmitEditing={() => {
+              setHistoryLoading(true);
+              loadHistory(historyQ);
+            }}
+            onClear={() => {
+              setHistoryQ('');
+              setHistoryLoading(true);
+              loadHistory('');
+            }}
+          />
+          <Button
+            label="Search history"
+            variant="secondary"
+            onPress={() => {
+              setHistoryLoading(true);
+              loadHistory(historyQ);
+            }}
+          />
           {historyLoading ? (
             <LoadingState />
           ) : historyError ? (
@@ -307,7 +347,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
           ) : history.length === 0 ? (
             <Muted>No withdrawals yet</Muted>
           ) : (
-            history.slice(0, 15).map((w) => (
+            history.slice(0, 25).map((w) => (
               <Pressable key={w.id} onPress={() => navigation.navigate('WithdrawalConfirm', { id: w.id })}>
                 <Text style={{ paddingVertical: 6, fontWeight: '600' }}>
                   #{w.id} · {w.purpose}

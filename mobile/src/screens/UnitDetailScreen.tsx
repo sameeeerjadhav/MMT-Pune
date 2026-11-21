@@ -3,10 +3,12 @@ import { Image, ScrollView, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { CubeIcon } from '../components/icons';
 import { Badge, Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle } from '../components/ui';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors, radius } from '../theme/tokens';
+import { canAccess } from '../utils/roles';
 
 function DetailRow({ label, value }: { label: string; value?: string | number | null }) {
   if (value === undefined || value === null || value === '') return null;
@@ -31,6 +33,8 @@ function DetailRow({ label, value }: { label: string; value?: string | number | 
 
 export default function UnitDetailScreen({ route, navigation }: any) {
   const id = route?.params?.id;
+  const { user } = useAuth();
+  const canManage = canAccess(user?.role, 'manageMasterData');
   const scrollPad = useTabScrollPadding(28);
   const [unit, setUnit] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
@@ -38,6 +42,8 @@ export default function UnitDetailScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState('');
+  const [testingMsg, setTestingMsg] = useState('');
+  const [testingSaving, setTestingSaving] = useState(false);
 
   const load = async () => {
     setError('');
@@ -64,7 +70,7 @@ export default function UnitDetailScreen({ route, navigation }: any) {
   if (!id) return <ErrorState message="Missing unit id" />;
 
   const pickAndUploadImage = async () => {
-    if (!unit?.item?.id) return;
+    if (!canManage || !unit?.item?.id) return;
     setUploadMsg('');
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
@@ -145,13 +151,17 @@ export default function UnitDetailScreen({ route, navigation }: any) {
             <Badge label={unit.status} tone={unit.status === 'AVAILABLE' ? 'success' : 'danger'} />
           </View>
           <Muted>{unit.unit_code}</Muted>
-          <Button
-            label={itemImage ? 'Change item photo' : 'Upload item photo'}
-            variant="secondary"
-            loading={uploading}
-            onPress={pickAndUploadImage}
-          />
-          {uploadMsg ? <Muted>{uploadMsg}</Muted> : null}
+          {canManage ? (
+            <>
+              <Button
+                label={itemImage ? 'Change item photo' : 'Upload item photo'}
+                variant="secondary"
+                loading={uploading}
+                onPress={pickAndUploadImage}
+              />
+              {uploadMsg ? <Muted>{uploadMsg}</Muted> : null}
+            </>
+          ) : null}
         </Card>
 
         <Card>
@@ -161,6 +171,33 @@ export default function UnitDetailScreen({ route, navigation }: any) {
           <DetailRow label="GRN" value={unit.grn_number} />
           <DetailRow label="Testing" value={unit.testing_status} />
           <DetailRow label="Location" value={location} />
+          {canManage ? (
+            <View style={{ marginTop: 8, gap: 6 }}>
+              <Muted>Set testing status (leads only)</Muted>
+              {(['PENDING', 'PASSED', 'FAILED'] as const).map((status) => (
+                <Button
+                  key={status}
+                  label={status}
+                  variant={unit.testing_status === status ? 'primary' : 'secondary'}
+                  loading={testingSaving}
+                  onPress={async () => {
+                    setTestingSaving(true);
+                    setTestingMsg('');
+                    try {
+                      const { data } = await inventoryApi.updateUnitTesting(unit.id, status);
+                      setUnit(data);
+                      setTestingMsg(`Testing set to ${status}`);
+                    } catch (e) {
+                      setTestingMsg(getErrorMessage(e));
+                    } finally {
+                      setTestingSaving(false);
+                    }
+                  }}
+                />
+              ))}
+              {testingMsg ? <Muted>{testingMsg}</Muted> : null}
+            </View>
+          ) : null}
         </Card>
 
         <Card>

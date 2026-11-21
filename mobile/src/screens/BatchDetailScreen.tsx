@@ -3,10 +3,12 @@ import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { inventoryApi, barcodeApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { CubeIcon } from '../components/icons';
 import { Badge, Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle } from '../components/ui';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors, radius } from '../theme/tokens';
+import { canAccess } from '../utils/roles';
 
 function DetailRow({ label, value }: { label: string; value?: string | number | null }) {
   if (value === undefined || value === null || value === '') return null;
@@ -31,6 +33,8 @@ function DetailRow({ label, value }: { label: string; value?: string | number | 
 
 export default function BatchDetailScreen({ route, navigation }: any) {
   const id = route?.params?.id;
+  const { user } = useAuth();
+  const canManage = canAccess(user?.role, 'manageMasterData');
   const scrollPad = useTabScrollPadding(28);
   const [batch, setBatch] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
@@ -40,6 +44,8 @@ export default function BatchDetailScreen({ route, navigation }: any) {
   const [printMsg, setPrintMsg] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState('');
+  const [testingMsg, setTestingMsg] = useState('');
+  const [testingSaving, setTestingSaving] = useState(false);
 
   const load = async () => {
     try {
@@ -76,7 +82,7 @@ export default function BatchDetailScreen({ route, navigation }: any) {
   }, [batch?.batch_code, navigation]);
 
   const pickAndUploadImage = async () => {
-    if (!batch?.item?.id) return;
+    if (!canManage || !batch?.item?.id) return;
     setUploadMsg('');
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
@@ -136,37 +142,66 @@ export default function BatchDetailScreen({ route, navigation }: any) {
     <Screen style={{ padding: 0 }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}>
         <Card>
-          <Pressable onPress={pickAndUploadImage} disabled={uploading}>
-            {itemImage ? (
-              <Image
-                source={{ uri: itemImage }}
-                style={{
-                  width: '100%',
-                  height: 200,
-                  borderRadius: radius.md,
-                  backgroundColor: colors.surfaceMuted,
-                  marginBottom: 12,
-                }}
-                resizeMode="cover"
-              />
-            ) : (
-              <View
-                style={{
-                  height: 180,
-                  borderRadius: radius.md,
-                  backgroundColor: colors.primarySoft,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: 12,
-                  gap: 8,
-                }}
-              >
-                <CubeIcon size={40} color={colors.primaryDark} />
-                <Text style={{ fontWeight: '700', color: colors.primaryDark }}>Tap to add item photo</Text>
-                <Muted>Shown on all batches for this item</Muted>
-              </View>
-            )}
-          </Pressable>
+          {canManage ? (
+            <Pressable onPress={pickAndUploadImage} disabled={uploading}>
+              {itemImage ? (
+                <Image
+                  source={{ uri: itemImage }}
+                  style={{
+                    width: '100%',
+                    height: 200,
+                    borderRadius: radius.md,
+                    backgroundColor: colors.surfaceMuted,
+                    marginBottom: 12,
+                  }}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View
+                  style={{
+                    height: 180,
+                    borderRadius: radius.md,
+                    backgroundColor: colors.primarySoft,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 12,
+                    gap: 8,
+                  }}
+                >
+                  <CubeIcon size={40} color={colors.primaryDark} />
+                  <Text style={{ fontWeight: '700', color: colors.primaryDark }}>Tap to add item photo</Text>
+                  <Muted>Shown on all batches for this item</Muted>
+                </View>
+              )}
+            </Pressable>
+          ) : itemImage ? (
+            <Image
+              source={{ uri: itemImage }}
+              style={{
+                width: '100%',
+                height: 200,
+                borderRadius: radius.md,
+                backgroundColor: colors.surfaceMuted,
+                marginBottom: 12,
+              }}
+              resizeMode="cover"
+            />
+          ) : (
+            <View
+              style={{
+                height: 160,
+                borderRadius: radius.md,
+                backgroundColor: colors.primarySoft,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 12,
+                gap: 8,
+              }}
+            >
+              <CubeIcon size={36} color={colors.primaryDark} />
+              <Muted>No item photo yet</Muted>
+            </View>
+          )}
 
           <Text style={{ fontSize: 22, fontWeight: '800', color: colors.navy }}>{batch.item?.name}</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, marginBottom: 4, flexWrap: 'wrap' }}>
@@ -174,13 +209,17 @@ export default function BatchDetailScreen({ route, navigation }: any) {
             <Badge label={batch.item?.inventory_type || 'BULK'} tone="primary" />
           </View>
           <Muted>{batch.batch_code}</Muted>
-          <Button
-            label={itemImage ? 'Change item photo' : 'Upload item photo'}
-            variant="secondary"
-            loading={uploading}
-            onPress={pickAndUploadImage}
-          />
-          {uploadMsg ? <Muted>{uploadMsg}</Muted> : null}
+          {canManage ? (
+            <>
+              <Button
+                label={itemImage ? 'Change item photo' : 'Upload item photo'}
+                variant="secondary"
+                loading={uploading}
+                onPress={pickAndUploadImage}
+              />
+              {uploadMsg ? <Muted>{uploadMsg}</Muted> : null}
+            </>
+          ) : null}
         </Card>
 
         <Card>
@@ -203,6 +242,34 @@ export default function BatchDetailScreen({ route, navigation }: any) {
           <DetailRow label="Reserved qty" value={batch.reserved_qty} />
           <DetailRow label="Barcode" value={batch.barcode_value} />
           <DetailRow label="Location" value={location} />
+          <DetailRow label="Testing" value={batch.testing_status} />
+          {canManage ? (
+            <View style={{ marginTop: 8, gap: 6 }}>
+              <Muted>Set testing status (leads only)</Muted>
+              {(['PENDING', 'PASSED', 'FAILED'] as const).map((status) => (
+                <Button
+                  key={status}
+                  label={status}
+                  variant={batch.testing_status === status ? 'primary' : 'secondary'}
+                  loading={testingSaving}
+                  onPress={async () => {
+                    setTestingSaving(true);
+                    setTestingMsg('');
+                    try {
+                      const { data } = await inventoryApi.updateBatchTesting(batch.id, status);
+                      setBatch(data);
+                      setTestingMsg(`Testing set to ${status}`);
+                    } catch (e) {
+                      setTestingMsg(getErrorMessage(e));
+                    } finally {
+                      setTestingSaving(false);
+                    }
+                  }}
+                />
+              ))}
+              {testingMsg ? <Muted>{testingMsg}</Muted> : null}
+            </View>
+          ) : null}
         </Card>
 
         <Card>

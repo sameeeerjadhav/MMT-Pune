@@ -169,7 +169,7 @@ export default function ScannerScreen({ navigation }: any) {
                 label="Open rack"
                 onPress={() =>
                   navigation.navigate('Warehouse', {
-                    screen: 'RackDetail',
+                    screen: 'RackMap',
                     params: { id: result.rack.id },
                   })
                 }

@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,8 +12,21 @@ from inventory.models import InventoryBatch, InventoryUnit
 
 
 class GRNListCreateView(generics.ListCreateAPIView):
-    queryset = GRN.objects.select_related('vendor').prefetch_related('lines__item').order_by('-received_date')
     serializer_class = GRNSerializer
+
+    def get_queryset(self):
+        qs = GRN.objects.select_related('vendor').prefetch_related('lines__item').order_by('-received_date')
+        q = self.request.query_params.get('q', '').strip()
+        if q:
+            qs = qs.filter(
+                Q(grn_number__icontains=q)
+                | Q(external_ref__icontains=q)
+                | Q(external_system__icontains=q)
+                | Q(vendor__name__icontains=q)
+                | Q(vendor__code__icontains=q)
+                | Q(status__icontains=q)
+            )
+        return qs
 
     def get_permissions(self):
         if self.request.method == 'POST':
