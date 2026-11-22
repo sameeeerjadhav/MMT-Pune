@@ -60,3 +60,20 @@ class User(AbstractUser):
     def has_role(self, *codes):
         code = self.role_code
         return bool(code and code in codes)
+
+    def claim_main_admin_if_needed(self) -> bool:
+        """
+        Main admin = is_superuser. If this install has no superuser yet
+        (e.g. role was set to ADMIN in shell without is_superuser), the first
+        active ADMIN to hit this path becomes the sole main admin.
+        """
+        if self.is_superuser:
+            return True
+        if self.role_code != Role.Code.ADMIN or not self.is_active:
+            return False
+        if type(self).objects.filter(is_superuser=True).exists():
+            return False
+        type(self).objects.filter(pk=self.pk).update(is_superuser=True, is_staff=True)
+        self.is_superuser = True
+        self.is_staff = True
+        return True

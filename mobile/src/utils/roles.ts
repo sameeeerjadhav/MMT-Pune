@@ -58,7 +58,7 @@ export function roleLabel(role: RoleCode | undefined | null): string {
 export function roleBlurb(role: RoleCode | undefined | null): string {
   switch (role) {
     case 'ADMIN':
-      return 'Full control: create supervisors/employees, floors, racks, GRN, reports, and FIFO overrides.';
+      return 'Admins manage supervisors/employees, floors, racks, GRN, and reports. Only the main admin can add or remove other admins.';
     case 'SUPERVISOR':
       return 'Floor lead: floor grids, master data, GRN import, reports, and FIFO overrides.';
     case 'WAREHOUSE_EMPLOYEE':

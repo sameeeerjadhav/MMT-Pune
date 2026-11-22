@@ -11,6 +11,8 @@ type User = {
   last_name: string;
   role: string;
   employee_id?: string;
+  is_main_admin?: boolean;
+  is_active?: boolean;
 };
 
 type AuthContextValue = {

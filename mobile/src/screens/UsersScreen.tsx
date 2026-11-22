@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Pressable, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { usersApi } from '../api/endpoints';
@@ -23,16 +23,12 @@ import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
 import { canAccess, roleLabel } from '../utils/roles';
 
-type StaffRole = 'SUPERVISOR' | 'WAREHOUSE_EMPLOYEE';
-
-const ROLE_OPTIONS: { code: StaffRole; label: string }[] = [
-  { code: 'SUPERVISOR', label: 'Supervisor' },
-  { code: 'WAREHOUSE_EMPLOYEE', label: 'Warehouse Employee' },
-];
+type StaffRole = 'ADMIN' | 'SUPERVISOR' | 'WAREHOUSE_EMPLOYEE';
 
 export default function UsersScreen() {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const canManage = canAccess(user?.role, 'manageUsers');
+  const isMainAdmin = Boolean(user?.is_main_admin);
   const scrollPad = useTabScrollPadding(28);
   const [q, setQ] = useState('');
   const qRef = useRef(q);
@@ -54,6 +50,17 @@ export default function UsersScreen() {
     is_active: true,
   });
 
+  const roleOptions = useMemo(() => {
+    const base: { code: StaffRole; label: string }[] = [
+      { code: 'SUPERVISOR', label: 'Supervisor' },
+      { code: 'WAREHOUSE_EMPLOYEE', label: 'Warehouse Employee' },
+    ];
+    if (isMainAdmin) {
+      return [{ code: 'ADMIN' as StaffRole, label: 'Admin' }, ...base];
+    }
+    return base;
+  }, [isMainAdmin]);
+
   const load = useCallback(async (query?: string) => {
     setError('');
     try {
@@ -72,13 +79,23 @@ export default function UsersScreen() {
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
+      // Refresh profile so is_main_admin is current (and backend can claim the seat).
+      void refreshProfile().catch(() => undefined);
       load();
-    }, [load])
+    }, [load, refreshProfile])
   );
 
   if (!canManage) {
     return <ErrorState message="Only administrators can manage users." />;
   }
+
+  const canManageRow = (row: any) => {
+    if (!row) return false;
+    if (row.id === user?.id) return false;
+    if (row.is_main_admin) return false;
+    if (row.role === 'ADMIN') return isMainAdmin;
+    return true;
+  };
 
   const openCreate = () => {
     setCreating(true);
@@ -96,8 +113,22 @@ export default function UsersScreen() {
   };
 
   const openEdit = (row: any) => {
+    if (!canManageRow(row)) {
+      setError(
+        row.is_main_admin || row.id === user?.id
+          ? 'The main admin account cannot be edited here.'
+          : 'Only the main admin can manage other admin accounts.'
+      );
+      return;
+    }
     setCreating(false);
     setEditing(row);
+    const role: StaffRole =
+      row.role === 'ADMIN'
+        ? 'ADMIN'
+        : row.role === 'SUPERVISOR'
+          ? 'SUPERVISOR'
+          : 'WAREHOUSE_EMPLOYEE';
     setForm({
       username: row.username || '',
       password: '',
@@ -105,7 +136,7 @@ export default function UsersScreen() {
       last_name: row.last_name || '',
       email: row.email || '',
       employee_id: row.employee_id || '',
-      role: (row.role === 'SUPERVISOR' ? 'SUPERVISOR' : 'WAREHOUSE_EMPLOYEE') as StaffRole,
+      role,
       is_active: row.is_active !== false,
     });
   };
@@ -113,6 +144,10 @@ export default function UsersScreen() {
   const save = async () => {
     if (creating && (!form.username.trim() || !form.password.trim())) {
       setError('Username and password are required');
+      return;
+    }
+    if (form.role === 'ADMIN' && !isMainAdmin) {
+      setError('Only the main admin can create or assign Admin accounts');
       return;
     }
     setSaving(true);
@@ -169,6 +204,7 @@ export default function UsersScreen() {
   };
 
   const confirmToggle = (row: any) => {
+    if (!canManageRow(row)) return;
     const activate = row.is_active === false;
     Alert.alert(
       activate ? 'Activate user' : 'Deactivate user',
@@ -200,6 +236,7 @@ export default function UsersScreen() {
   };
 
   const confirmDelete = (row: any) => {
+    if (!canManageRow(row)) return;
     Alert.alert(
       'Delete user',
       `Permanently delete ${row.username}? Prefer Deactivate if they have withdrawal history.`,
@@ -216,8 +253,13 @@ export default function UsersScreen() {
   const header = (
     <View>
       <Muted>
-        Create, edit, activate, deactivate, or delete supervisors and warehouse employees.
+        {isMainAdmin
+          ? 'Main admin: you can add Admin, Supervisor, or Employee. Only you manage other admins.'
+          : 'You can add Supervisor or Employee. Log in as the main admin to add another Admin.'}
       </Muted>
+      {isMainAdmin ? (
+        <Muted>Tip: when adding a user, tap the Admin badge under Role.</Muted>
+      ) : null}
       <SearchInput
         placeholder="Search users..."
         value={q}
@@ -230,7 +272,7 @@ export default function UsersScreen() {
       />
       <Button label="Search" variant="secondary" onPress={() => load(q)} />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Subtitle>Staff ({rows.length})</Subtitle>
+        <Subtitle>Users ({rows.length})</Subtitle>
         <TextAction
           label={creating && !editing ? 'Cancel' : '+ Add user'}
           onPress={() => {
@@ -286,7 +328,7 @@ export default function UsersScreen() {
           />
           <Muted>Role</Muted>
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-            {ROLE_OPTIONS.map((opt) => (
+            {roleOptions.map((opt) => (
               <Pressable key={opt.code} onPress={() => setForm((f) => ({ ...f, role: opt.code }))}>
                 <Badge label={opt.label} tone={form.role === opt.code ? 'primary' : 'warning'} />
               </Pressable>
@@ -330,17 +372,22 @@ export default function UsersScreen() {
         contentContainerStyle={{ paddingBottom: scrollPad }}
         ListHeaderComponent={header}
         ListEmptyComponent={
-          !loading ? <Muted>No supervisors or employees yet. Tap + Add user.</Muted> : null
+          !loading ? <Muted>No users yet. Tap + Add user.</Muted> : null
         }
         renderItem={({ item }) => {
           const active = item.is_active !== false;
+          const manageable = canManageRow(item);
           return (
             <Card>
-              <Pressable onPress={() => openEdit(item)} style={{ paddingVertical: 4 }}>
+              <Pressable
+                onPress={() => (manageable ? openEdit(item) : undefined)}
+                style={{ paddingVertical: 4 }}
+              >
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontWeight: '800', color: colors.navy, fontSize: 15 }}>
                       {item.username}
+                      {item.is_main_admin ? ' · Main admin' : ''}
                     </Text>
                     <Muted>
                       {[item.first_name, item.last_name].filter(Boolean).join(' ') || 'No name'}
@@ -350,19 +397,35 @@ export default function UsersScreen() {
                   <View style={{ alignItems: 'flex-end', gap: 4 }}>
                     <Badge
                       label={roleLabel(item.role)}
-                      tone={item.role === 'SUPERVISOR' ? 'warning' : 'primary'}
+                      tone={
+                        item.role === 'ADMIN'
+                          ? 'danger'
+                          : item.role === 'SUPERVISOR'
+                            ? 'warning'
+                            : 'primary'
+                      }
                     />
                     {!active ? <Badge label="Inactive" tone="danger" /> : null}
                   </View>
                 </View>
               </Pressable>
-              <ManageActionBar
-                isActive={active}
-                disabled={saving}
-                onEdit={() => openEdit(item)}
-                onToggleActive={() => confirmToggle(item)}
-                onDelete={() => confirmDelete(item)}
-              />
+              {manageable ? (
+                <ManageActionBar
+                  isActive={active}
+                  disabled={saving}
+                  onEdit={() => openEdit(item)}
+                  onToggleActive={() => confirmToggle(item)}
+                  onDelete={() => confirmDelete(item)}
+                />
+              ) : (
+                <Muted>
+                  {item.is_main_admin
+                    ? 'Main admin is protected.'
+                    : item.id === user?.id
+                      ? 'This is your account.'
+                      : 'Only the main admin can manage this admin.'}
+                </Muted>
+              )}
             </Card>
           );
         }}
