@@ -99,7 +99,7 @@ class StaffUserUpdateSerializer(serializers.Serializer):
     def validate_role(self, value):
         role = (value or '').strip().upper()
         actor = self.context['request'].user
-        actor.claim_main_admin_if_needed()
+        # Read current seat only — never claim during a staff PATCH.
         allowed = (
             MAIN_ADMIN_ASSIGNABLE_ROLES if actor.is_superuser else STAFF_ASSIGNABLE_ROLES
         )

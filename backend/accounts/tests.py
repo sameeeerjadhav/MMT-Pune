@@ -260,3 +260,28 @@ class StaffUserAdminTests(TestCase):
         )
         self.assertEqual(created.status_code, 201)
         self.assertFalse(created.data['is_main_admin'])
+
+    def test_staff_patch_does_not_claim_main_admin_seat(self):
+        """Editing staff roles must not promote the actor when no superuser exists."""
+        self.main_admin.is_superuser = False
+        self.main_admin.save(update_fields=['is_superuser'])
+        self.client.force_authenticate(user=self.admin)
+        patch = self.client.patch(
+            f'/api/users/{self.employee.id}/',
+            {'role': 'SUPERVISOR'},
+            format='json',
+        )
+        self.assertEqual(patch.status_code, 200)
+        self.assertEqual(patch.data['role'], 'SUPERVISOR')
+        self.admin.refresh_from_db()
+        self.assertFalse(self.admin.is_superuser)
+
+        # Promoting another user to Admin still requires an existing main admin.
+        promote = self.client.patch(
+            f'/api/users/{self.employee.id}/',
+            {'role': 'ADMIN'},
+            format='json',
+        )
+        self.assertEqual(promote.status_code, 400)
+        self.admin.refresh_from_db()
+        self.assertFalse(self.admin.is_superuser)

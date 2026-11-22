@@ -26,10 +26,10 @@ STAFF_ROLE_CODES = (Role.Code.SUPERVISOR, Role.Code.WAREHOUSE_EMPLOYEE)
 
 
 def _is_main_admin(user) -> bool:
-    """Exactly one main admin: Django superuser (claims seat if none exists yet)."""
+    """Main admin = is_superuser only. Do not claim here (login/profile claim the seat)."""
     if not user or not user.is_authenticated:
         return False
-    return bool(user.claim_main_admin_if_needed())
+    return bool(user.is_superuser)
 
 
 def _get_manageable_user(request, pk) -> User:
