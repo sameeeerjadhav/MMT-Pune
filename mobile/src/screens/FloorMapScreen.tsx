@@ -17,12 +17,12 @@ import {
   Button,
   Card,
   ErrorState,
-  LoadingState,
   Metric,
   Muted,
   Screen,
   Subtitle,
 } from '../components/ui';
+import { MapSkeleton } from '../components/Skeleton';
 import { useAuth } from '../context/AuthContext';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors, radius } from '../theme/tokens';
@@ -171,7 +171,7 @@ export default function FloorMapScreen({ route, navigation }: any) {
   };
 
   if (!id) return <ErrorState message="Missing floor id" />;
-  if (loading && !map) return <LoadingState />;
+  if (loading && !map) return <MapSkeleton />;
   if (error && !map) return <ErrorState message={error} onRetry={load} />;
   if (!map) return <ErrorState message="Floor map unavailable" onRetry={load} />;
 
@@ -190,7 +190,7 @@ export default function FloorMapScreen({ route, navigation }: any) {
               {floor.name || floor.code}
             </Text>
             <Muted>
-              {floor.warehouse_code} ? Level {floor.level} ? Grid {floor.row_count}?{floor.column_count}
+              {floor.warehouse_code} · Level {floor.level} · Grid {floor.row_count}×{floor.column_count}
             </Muted>
           </View>
           <Badge label={roleLabel(user?.role)} tone="primary" />
@@ -234,7 +234,7 @@ export default function FloorMapScreen({ route, navigation }: any) {
           <Subtitle>Floor rack map</Subtitle>
           <Muted>
             Each cell is one large rack bay. Color shows how full the rack sections are. Tap a bay
-            for stock, then open the rack map for shelf ? position detail.
+            for stock, then open the rack map for shelf / position detail.
           </Muted>
 
           <ScrollView
@@ -321,7 +321,7 @@ export default function FloorMapScreen({ route, navigation }: any) {
                           {rack.sections_occupied}/{rack.sections_total} sec
                         </Text>
                         <Text style={{ fontSize: 11, fontWeight: '700', color: tone.label }}>
-                          {rack.fill_pct}% ? {rack.stock_lines} stock
+                          {rack.fill_pct}% · {rack.stock_lines} stock
                         </Text>
                       </Pressable>
                     );
@@ -344,7 +344,7 @@ export default function FloorMapScreen({ route, navigation }: any) {
             <Subtitle>
               {selected.empty
                 ? `Empty bay ${selected.cell_code}`
-                : `Rack ${selected.rack?.code} ? ${selected.cell_code}`}
+                : `Rack ${selected.rack?.code} · ${selected.cell_code}`}
             </Subtitle>
             {selected.empty ? (
               <Muted>
@@ -355,15 +355,27 @@ export default function FloorMapScreen({ route, navigation }: any) {
             ) : (
               <>
                 <Muted>
-                  {selected.rack?.name} ? Qty {selected.rack?.total_qty} ? Fill{' '}
+                  {selected.rack?.name} · Qty {selected.rack?.total_qty} · Fill{' '}
                   {selected.rack?.fill_pct}%
                 </Muted>
                 {(selected.rack?.stock || []).length === 0 ? (
                   <Muted>No stock loaded in this rack yet.</Muted>
                 ) : (
                   selected.rack!.stock.map((s) => (
-                    <View
+                    <Pressable
                       key={s.allocation_id}
+                      onPress={() =>
+                        navigation.navigate('AllocationDetail', {
+                          allocationId: s.allocation_id,
+                          batchId: s.batch_id ?? null,
+                          unitId: s.unit_id ?? null,
+                          quantity: s.quantity ?? null,
+                          rackId: selected.rack?.id,
+                          rackCode: selected.rack?.code,
+                          shelfCode: s.section?.split('/')?.[0] || s.shelf_code,
+                          positionCode: s.position_code,
+                        })
+                      }
                       style={{
                         marginTop: 10,
                         paddingTop: 10,
@@ -373,18 +385,19 @@ export default function FloorMapScreen({ route, navigation }: any) {
                     >
                       <Text style={{ fontWeight: '800', color: colors.navy }}>
                         {s.batch_code || s.unit_code}
-                        {s.section ? ` ? ${s.section}` : ''}
+                        {s.section ? ` · ${s.section}` : ''}
                       </Text>
                       <Muted>
-                        {s.item_code ? `${s.item_code} ? ` : ''}
+                        {s.item_code ? `${s.item_code} — ` : ''}
                         {s.item_name || 'Item'}
                       </Muted>
-                      <Text style={{ color: colors.text, marginTop: 2 }}>Qty {s.quantity ?? '?'}</Text>
-                    </View>
+                      <Text style={{ color: colors.text, marginTop: 2 }}>Qty {s.quantity ?? '—'}</Text>
+                      <Muted>Tap for details & history</Muted>
+                    </Pressable>
                   ))
                 )}
                 {selected.rack?.stock_truncated ? (
-                  <Muted>Showing top stock lines ? open the rack map for every section.</Muted>
+                  <Muted>Showing top stock lines · open the rack map for every section.</Muted>
                 ) : null}
 
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
@@ -407,7 +420,7 @@ export default function FloorMapScreen({ route, navigation }: any) {
           </Card>
         ) : (
           <Card>
-            <Muted>Tap a bay on the floor map to inspect stock or open that rack?s sections.</Muted>
+            <Muted>Tap a bay on the floor map to inspect stock or open that rack's sections.</Muted>
           </Card>
         )}
 
@@ -421,8 +434,8 @@ export default function FloorMapScreen({ route, navigation }: any) {
             </Muted>
             {unplaced.map((r) => (
               <Text key={r.id} style={{ marginTop: 6, color: colors.text, fontWeight: '600' }}>
-                {r.code} ? {r.name}
-                {r.stock_lines ? ` ? ${r.stock_lines} stock` : ''}
+                {r.code} · {r.name}
+                {r.stock_lines ? ` · ${r.stock_lines} stock` : ''}
               </Text>
             ))}
           </Card>
@@ -507,7 +520,7 @@ export default function FloorMapScreen({ route, navigation }: any) {
             }}
           >
             <Subtitle>
-              Place rack at {selected?.cell_code || '?'}
+              Place rack at {selected?.cell_code || '—'}
             </Subtitle>
             <Muted>Choose an unplaced rack for this bay.</Muted>
             <ScrollView style={{ marginTop: 12 }}>
@@ -523,7 +536,7 @@ export default function FloorMapScreen({ route, navigation }: any) {
                         color: placeRackId === r.id ? colors.primary : colors.text,
                       }}
                     >
-                      {r.code} ? {r.name}
+                      {r.code} · {r.name}
                     </Text>
                   </Pressable>
                 ))

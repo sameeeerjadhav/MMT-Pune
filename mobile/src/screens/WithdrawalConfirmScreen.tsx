@@ -107,8 +107,12 @@ export default function WithdrawalConfirmScreen({ route }: any) {
                     <DetailRow label="Quantity" value={l.quantity} />
                     <DetailRow label="From location" value={locStr} />
                     <DetailRow
-                      label="FIFO"
-                      value={l.fifo_override ? `OVERRIDE · ${l.override_reason || '—'}` : 'OK'}
+                      label="Age order"
+                      value={
+                        l.fifo_override
+                          ? `Override · ${l.override_reason || '—'}`
+                          : 'Older stock used first'
+                      }
                     />
                   </View>
                 );

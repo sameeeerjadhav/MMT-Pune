@@ -90,10 +90,37 @@ def update_floor_layout(*, floor_id, row_count, column_count):
     from django.db.models import Q
 
     floor = Floor.objects.select_for_update().get(pk=floor_id)
-    # Clear placements that fall outside the new grid.
-    Rack.objects.filter(floor=floor).filter(
-        Q(row_index__gt=row_count) | Q(column_index__gt=column_count)
-    ).update(row_index=None, column_index=None)
+    # Racks that would fall outside the new grid.
+    outside_ids = list(
+        Rack.objects.filter(floor=floor)
+        .filter(Q(row_index__gt=row_count) | Q(column_index__gt=column_count))
+        .values_list('id', flat=True)
+    )
+    if outside_ids:
+        # Never orphan stocked racks off the map — empty cells could then get a new rack.
+        stocked_codes = sorted(
+            {
+                code
+                for code in StockAllocation.objects.filter(
+                    is_active=True,
+                    allocation_type='ACTUAL',
+                    position__shelf__rack_id__in=outside_ids,
+                )
+                .values_list('position__shelf__rack__code', flat=True)
+                .distinct()
+                if code
+            }
+        )
+        if stocked_codes:
+            raise ApiError(
+                'CELL_OCCUPIED',
+                'Cannot shrink floor: racks with stock would leave the grid: '
+                + ', '.join(stocked_codes)
+                + '. Move or deallocate that stock first.',
+                status_code=409,
+                details={'rack_codes': stocked_codes},
+            )
+        Rack.objects.filter(pk__in=outside_ids).update(row_index=None, column_index=None)
     floor.row_count = row_count
     floor.column_count = column_count
     floor.save(update_fields=['row_count', 'column_count', 'updated_at'])

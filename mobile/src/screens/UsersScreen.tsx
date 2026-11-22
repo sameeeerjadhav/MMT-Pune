@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Pressable, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { usersApi } from '../api/endpoints';
@@ -6,12 +6,11 @@ import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import {
   Badge,
-  Button,
   Card,
   ErrorState,
+  FilterChips,
   FormActions,
   Input,
-  LoadingState,
   ManageActionBar,
   Muted,
   Screen,
@@ -19,26 +18,29 @@ import {
   Subtitle,
   TextAction,
 } from '../components/ui';
+import { ListSkeleton } from '../components/Skeleton';
+import { PageHeader } from '../components/PageHeader';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
 import { canAccess, roleLabel } from '../utils/roles';
 
-type StaffRole = 'SUPERVISOR' | 'WAREHOUSE_EMPLOYEE';
-
-const ROLE_OPTIONS: { code: StaffRole; label: string }[] = [
-  { code: 'SUPERVISOR', label: 'Supervisor' },
-  { code: 'WAREHOUSE_EMPLOYEE', label: 'Warehouse Employee' },
-];
+type StaffRole = 'ADMIN' | 'SUPERVISOR' | 'WAREHOUSE_EMPLOYEE';
+type RoleFilter = '' | StaffRole;
 
 export default function UsersScreen() {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const canManage = canAccess(user?.role, 'manageUsers');
+  const isMainAdmin = Boolean(user?.is_main_admin);
   const scrollPad = useTabScrollPadding(28);
   const [q, setQ] = useState('');
-  const qRef = useRef(q);
-  qRef.current = q;
+  const debouncedQ = useDebouncedValue(q, 160);
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('');
+  const [draftRole, setDraftRole] = useState<RoleFilter>('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<any | null>(null);
   const [creating, setCreating] = useState(false);
@@ -54,31 +56,77 @@ export default function UsersScreen() {
     is_active: true,
   });
 
-  const load = useCallback(async (query?: string) => {
+  // Any admin can create another admin; only main admin can promote via edit.
+  const roleOptions = useMemo(() => {
+    const all: { code: StaffRole; label: string }[] = [
+      { code: 'ADMIN', label: 'Admin' },
+      { code: 'SUPERVISOR', label: 'Supervisor' },
+      { code: 'WAREHOUSE_EMPLOYEE', label: 'Warehouse Employee' },
+    ];
+    if (editing && !isMainAdmin) {
+      return all.filter((o) => o.code !== 'ADMIN');
+    }
+    return all;
+  }, [editing, isMainAdmin]);
+
+  const roleFilterLabel =
+    roleFilter === 'ADMIN'
+      ? 'Admin'
+      : roleFilter === 'SUPERVISOR'
+        ? 'Supervisor'
+        : roleFilter === 'WAREHOUSE_EMPLOYEE'
+          ? 'Employee'
+          : '';
+
+  const hasRows = useRef(false);
+
+  const load = useCallback(async (opts?: { soft?: boolean; signal?: { cancelled: boolean } }) => {
     setError('');
+    if (opts?.soft) setSearching(true);
+    else setLoading(true);
     try {
       const { data } = await usersApi.list({
-        q: (query ?? qRef.current) || undefined,
+        q: debouncedQ.trim() || undefined,
+        role: roleFilter || undefined,
         include_inactive: '1',
       });
+      if (opts?.signal?.cancelled) return;
       setRows(data);
+      hasRows.current = data.length > 0;
     } catch (e) {
+      if (opts?.signal?.cancelled) return;
       setError(getErrorMessage(e));
     } finally {
-      setLoading(false);
+      if (!opts?.signal?.cancelled) {
+        setLoading(false);
+        setSearching(false);
+      }
     }
-  }, []);
+  }, [debouncedQ, roleFilter]);
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      load();
-    }, [load])
+      const signal = { cancelled: false };
+      // Refresh profile once per focus — refreshProfile is stable (no loop).
+      void refreshProfile().catch(() => undefined);
+      void load({ soft: hasRows.current, signal });
+      return () => {
+        signal.cancelled = true;
+      };
+    }, [debouncedQ, roleFilter, refreshProfile, load])
   );
 
   if (!canManage) {
     return <ErrorState message="Only administrators can manage users." />;
   }
+
+  const canManageRow = (row: any) => {
+    if (!row) return false;
+    if (row.id === user?.id) return false;
+    if (row.is_main_admin) return false;
+    if (row.role === 'ADMIN') return isMainAdmin;
+    return true;
+  };
 
   const openCreate = () => {
     setCreating(true);
@@ -96,8 +144,22 @@ export default function UsersScreen() {
   };
 
   const openEdit = (row: any) => {
+    if (!canManageRow(row)) {
+      setError(
+        row.is_main_admin || row.id === user?.id
+          ? 'The main admin account cannot be edited here.'
+          : 'Only the main admin can manage other admin accounts.'
+      );
+      return;
+    }
     setCreating(false);
     setEditing(row);
+    const role: StaffRole =
+      row.role === 'ADMIN'
+        ? 'ADMIN'
+        : row.role === 'SUPERVISOR'
+          ? 'SUPERVISOR'
+          : 'WAREHOUSE_EMPLOYEE';
     setForm({
       username: row.username || '',
       password: '',
@@ -105,7 +167,7 @@ export default function UsersScreen() {
       last_name: row.last_name || '',
       email: row.email || '',
       employee_id: row.employee_id || '',
-      role: (row.role === 'SUPERVISOR' ? 'SUPERVISOR' : 'WAREHOUSE_EMPLOYEE') as StaffRole,
+      role,
       is_active: row.is_active !== false,
     });
   };
@@ -142,7 +204,7 @@ export default function UsersScreen() {
       }
       setCreating(false);
       setEditing(null);
-      await load();
+      await load({ soft: true });
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -160,7 +222,7 @@ export default function UsersScreen() {
         setEditing({ ...editing, is_active: nextActive });
         setForm((f) => ({ ...f, is_active: nextActive }));
       }
-      await load();
+      await load({ soft: true });
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -169,6 +231,7 @@ export default function UsersScreen() {
   };
 
   const confirmToggle = (row: any) => {
+    if (!canManageRow(row)) return;
     const activate = row.is_active === false;
     Alert.alert(
       activate ? 'Activate user' : 'Deactivate user',
@@ -191,7 +254,7 @@ export default function UsersScreen() {
         setEditing(null);
         setCreating(false);
       }
-      await load();
+      await load({ soft: true });
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -200,6 +263,7 @@ export default function UsersScreen() {
   };
 
   const confirmDelete = (row: any) => {
+    if (!canManageRow(row)) return;
     Alert.alert(
       'Delete user',
       `Permanently delete ${row.username}? Prefer Deactivate if they have withdrawal history.`,
@@ -210,27 +274,79 @@ export default function UsersScreen() {
     );
   };
 
-  if (loading && !rows.length) return <LoadingState />;
+  if (loading && !rows.length) return <ListSkeleton rows={6} titleWidth="30%" />;
   if (error && !rows.length) return <ErrorState message={error} onRetry={() => load()} />;
 
   const header = (
     <View>
-      <Muted>
-        Create, edit, activate, deactivate, or delete supervisors and warehouse employees.
-      </Muted>
+      <PageHeader title="Users" safeTop />
       <SearchInput
         placeholder="Search users..."
         value={q}
         onChangeText={setQ}
-        onSubmitEditing={() => load(q)}
-        onClear={() => {
-          setQ('');
-          load('');
+        searching={searching}
+        onClear={() => setQ('')}
+        onFilterPress={() => {
+          if (filtersOpen) {
+            setDraftRole(roleFilter);
+            setFiltersOpen(false);
+          } else {
+            setDraftRole(roleFilter);
+            setFiltersOpen(true);
+          }
         }}
+        filterOpen={filtersOpen}
+        filterActive={Boolean(roleFilter)}
       />
-      <Button label="Search" variant="secondary" onPress={() => load(q)} />
+      {filtersOpen ? (
+        <Card>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Muted>Filter by role</Muted>
+            {draftRole ? (
+              <TextAction label="Clear" onPress={() => setDraftRole('')} />
+            ) : null}
+          </View>
+          <FilterChips
+            value={draftRole}
+            onChange={(v) => setDraftRole(v as RoleFilter)}
+            options={[
+              { value: '', label: 'All roles' },
+              { value: 'ADMIN', label: 'Admin' },
+              { value: 'SUPERVISOR', label: 'Supervisor' },
+              { value: 'WAREHOUSE_EMPLOYEE', label: 'Employee' },
+            ]}
+          />
+          <FormActions
+            primaryLabel="Apply"
+            onPrimary={() => {
+              setRoleFilter(draftRole);
+              setFiltersOpen(false);
+            }}
+            onCancel={() => {
+              setDraftRole(roleFilter);
+              setFiltersOpen(false);
+            }}
+          />
+        </Card>
+      ) : roleFilter ? (
+        <View
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            backgroundColor: colors.primarySoft,
+            borderRadius: 12,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            marginBottom: 8,
+          }}
+        >
+          <Muted>Role: {roleFilterLabel}</Muted>
+          <TextAction label="Clear" tone="muted" onPress={() => setRoleFilter('')} />
+        </View>
+      ) : null}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Subtitle>Staff ({rows.length})</Subtitle>
+        <Subtitle>Users ({rows.length})</Subtitle>
         <TextAction
           label={creating && !editing ? 'Cancel' : '+ Add user'}
           onPress={() => {
@@ -286,7 +402,7 @@ export default function UsersScreen() {
           />
           <Muted>Role</Muted>
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-            {ROLE_OPTIONS.map((opt) => (
+            {roleOptions.map((opt) => (
               <Pressable key={opt.code} onPress={() => setForm((f) => ({ ...f, role: opt.code }))}>
                 <Badge label={opt.label} tone={form.role === opt.code ? 'primary' : 'warning'} />
               </Pressable>
@@ -330,17 +446,22 @@ export default function UsersScreen() {
         contentContainerStyle={{ paddingBottom: scrollPad }}
         ListHeaderComponent={header}
         ListEmptyComponent={
-          !loading ? <Muted>No supervisors or employees yet. Tap + Add user.</Muted> : null
+          !loading ? <Muted>No users yet. Tap + Add user.</Muted> : null
         }
         renderItem={({ item }) => {
           const active = item.is_active !== false;
+          const manageable = canManageRow(item);
           return (
             <Card>
-              <Pressable onPress={() => openEdit(item)} style={{ paddingVertical: 4 }}>
+              <Pressable
+                onPress={() => (manageable ? openEdit(item) : undefined)}
+                style={{ paddingVertical: 4 }}
+              >
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontWeight: '800', color: colors.navy, fontSize: 15 }}>
                       {item.username}
+                      {item.is_main_admin ? ' · Main admin' : ''}
                     </Text>
                     <Muted>
                       {[item.first_name, item.last_name].filter(Boolean).join(' ') || 'No name'}
@@ -350,19 +471,35 @@ export default function UsersScreen() {
                   <View style={{ alignItems: 'flex-end', gap: 4 }}>
                     <Badge
                       label={roleLabel(item.role)}
-                      tone={item.role === 'SUPERVISOR' ? 'warning' : 'primary'}
+                      tone={
+                        item.role === 'ADMIN'
+                          ? 'danger'
+                          : item.role === 'SUPERVISOR'
+                            ? 'warning'
+                            : 'primary'
+                      }
                     />
                     {!active ? <Badge label="Inactive" tone="danger" /> : null}
                   </View>
                 </View>
               </Pressable>
-              <ManageActionBar
-                isActive={active}
-                disabled={saving}
-                onEdit={() => openEdit(item)}
-                onToggleActive={() => confirmToggle(item)}
-                onDelete={() => confirmDelete(item)}
-              />
+              {manageable ? (
+                <ManageActionBar
+                  isActive={active}
+                  disabled={saving}
+                  onEdit={() => openEdit(item)}
+                  onToggleActive={() => confirmToggle(item)}
+                  onDelete={() => confirmDelete(item)}
+                />
+              ) : (
+                <Muted>
+                  {item.is_main_admin
+                    ? 'Main admin is protected.'
+                    : item.id === user?.id
+                      ? 'This is your account.'
+                      : 'Only the main admin can manage this admin.'}
+                </Muted>
+              )}
             </Card>
           );
         }}

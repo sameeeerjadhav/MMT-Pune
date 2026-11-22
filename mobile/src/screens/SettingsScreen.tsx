@@ -5,11 +5,12 @@ import { API_BASE_URL } from '../api/client';
 import { healthApi } from '../api/endpoints';
 import { GearIcon, UserIcon } from '../components/icons';
 import { Badge, Button, Card, Muted, Screen, SectionLabel, Subtitle } from '../components/ui';
+import { PageHeader } from '../components/PageHeader';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { activeScanner } from '../services/hardware/scanner';
 import { activePrinter } from '../services/hardware/printer';
-import { colors } from '../theme/tokens';
-import { roleBlurb, roleLabel } from '../utils/roles';
+import { colors, fonts } from '../theme/tokens';
+import { roleLabel } from '../utils/roles';
 
 export default function SettingsScreen() {
   const { user, logout } = useAuth();
@@ -30,9 +31,9 @@ export default function SettingsScreen() {
   return (
     <Screen style={{ padding: 0 }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}>
-      <Muted>Account, connection, and device adapters.</Muted>
+      <PageHeader title="Settings" safeTop />
 
-      <Card style={{ marginTop: 12 }}>
+      <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <UserIcon size={20} color={colors.navy} />
@@ -43,13 +44,12 @@ export default function SettingsScreen() {
             tone={user?.role === 'ADMIN' ? 'danger' : user?.role === 'SUPERVISOR' ? 'warning' : 'primary'}
           />
         </View>
-        <Text style={{ fontWeight: '700', color: colors.navy, fontSize: 16 }}>
+        <Text style={{ fontFamily: fonts.uiBold, color: colors.navy, fontSize: 16 }}>
           {user?.first_name} {user?.last_name}
         </Text>
         <Muted>
           {user?.username} · {user?.employee_id || 'no employee id'}
         </Muted>
-        <Muted>{roleBlurb(user?.role)}</Muted>
       </Card>
 
       <SectionLabel>Connection</SectionLabel>

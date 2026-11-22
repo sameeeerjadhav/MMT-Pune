@@ -1,5 +1,15 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  Animated,
+  Easing,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { warehouseApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -10,12 +20,12 @@ import {
   Button,
   Card,
   ErrorState,
-  LoadingState,
   Metric,
   Muted,
   Screen,
   Subtitle,
 } from '../components/ui';
+import { MapSkeleton } from '../components/Skeleton';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors, radius } from '../theme/tokens';
 import { canAccess, roleLabel } from '../utils/roles';
@@ -39,6 +49,8 @@ function naturalCompare(a: string, b: string) {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
+const SCROLL_DURATION_MS = 560;
+
 export default function RackMapScreen({ route, navigation }: any) {
   const id = route?.params?.id;
   const { user } = useAuth();
@@ -47,6 +59,12 @@ export default function RackMapScreen({ route, navigation }: any) {
   const canEditLayout = canAccess(user?.role, 'editFloorLayout') || canAccess(user?.role, 'createRack');
   const scrollPad = useTabScrollPadding(28);
   const loadSeq = useRef(0);
+  const scrollRef = useRef<ScrollView | null>(null);
+  const cellCardY = useRef(0);
+  const scrollOffset = useRef(0);
+  const pendingCellScroll = useRef(false);
+  const scrollAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  const isSmoothScrolling = useRef(false);
   const [map, setMap] = useState<any>(null);
   const [selectedPositionId, setSelectedPositionId] = useState<number | null>(null);
   const [selectedStockId, setSelectedStockId] = useState<number | null>(null);
@@ -120,6 +138,76 @@ export default function RackMapScreen({ route, navigation }: any) {
     return selected.cell.stock[0] || null;
   }, [selected, selectedStockId]);
 
+  const smoothScrollTo = useCallback((toY: number) => {
+    const target = Math.max(toY, 0);
+    const from = scrollOffset.current;
+    if (Math.abs(target - from) < 2) return;
+
+    scrollAnimRef.current?.stop();
+    isSmoothScrolling.current = true;
+    const progress = new Animated.Value(0);
+    const listenerId = progress.addListener(({ value }) => {
+      const y = from + (target - from) * value;
+      scrollOffset.current = y;
+      scrollRef.current?.scrollTo({ y, animated: false });
+    });
+
+    const anim = Animated.timing(progress, {
+      toValue: 1,
+      duration: SCROLL_DURATION_MS,
+      easing: Easing.bezier(0.22, 1, 0.36, 1),
+      useNativeDriver: false,
+    });
+    scrollAnimRef.current = anim;
+    anim.start(({ finished }) => {
+      progress.removeListener(listenerId);
+      scrollAnimRef.current = null;
+      isSmoothScrolling.current = false;
+      if (finished) {
+        scrollOffset.current = target;
+        scrollRef.current?.scrollTo({ y: target, animated: false });
+      }
+    });
+  }, []);
+
+  const selectCell = useCallback(
+    (cell: Cell) => {
+      setSelectedPositionId(cell.position_id);
+      setSelectedStockId(cell.stock[0]?.allocation_id ?? null);
+      pendingCellScroll.current = true;
+      // If the cell card is already on screen, ease there now; otherwise onLayout will.
+      requestAnimationFrame(() => {
+        if (!pendingCellScroll.current) return;
+        if (cellCardY.current > 0) {
+          pendingCellScroll.current = false;
+          smoothScrollTo(Math.max(cellCardY.current - 16, 0));
+        }
+      });
+    },
+    [smoothScrollTo]
+  );
+
+  const openStockDetails = useCallback(
+    (s: any, shelfCode: string, cell: Cell) => {
+      const rackInfo = map?.rack || {};
+      navigation.navigate('AllocationDetail', {
+        allocationId: s.allocation_id,
+        batchId: s.batch_id ?? null,
+        unitId: s.unit_id ?? null,
+        quantity: s.quantity ?? null,
+        location: `${rackInfo.warehouse_code}/${rackInfo.code}/${shelfCode}/${cell.position_code}`,
+        warehouseCode: rackInfo.warehouse_code,
+        warehouseName: rackInfo.warehouse_name,
+        rackId: id,
+        rackCode: rackInfo.code,
+        shelfCode,
+        positionCode: cell.position_code,
+        positionId: cell.position_id,
+      });
+    },
+    [id, map, navigation]
+  );
+
   // Must run before any early return (Rules of Hooks).
   const allowEdit = Boolean(canEditLayout || map?.can_edit_layout);
   React.useEffect(() => {
@@ -139,7 +227,7 @@ export default function RackMapScreen({ route, navigation }: any) {
   }, [navigation, allowEdit]);
 
   if (!id) return <ErrorState message="Missing rack id" />;
-  if (loading && !map) return <LoadingState />;
+  if (loading && !map) return <MapSkeleton />;
   if (error && !map) return <ErrorState message={error} onRetry={load} />;
   if (!map) return <ErrorState message="Rack map unavailable" onRetry={load} />;
 
@@ -182,8 +270,16 @@ export default function RackMapScreen({ route, navigation }: any) {
   return (
     <Screen style={{ padding: 0 }}>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}
         nestedScrollEnabled
+        scrollEventThrottle={16}
+        onScroll={(e) => {
+          // Keep offset in sync when the user scrolls by hand (skip while we animate).
+          if (!isSmoothScrolling.current) {
+            scrollOffset.current = e.nativeEvent.contentOffset.y;
+          }
+        }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
           <RackIcon size={22} color={colors.primaryDark} />
@@ -246,7 +342,7 @@ export default function RackMapScreen({ route, navigation }: any) {
 
         <Card>
           <Subtitle>Visual rack map</Subtitle>
-          <Muted>Rows = shelves · Columns = positions. Tap a cell to manage stock.</Muted>
+          <Muted>Rows = shelves · Columns = positions. Tap occupied stock for details & history.</Muted>
 
           <ScrollView
             horizontal
@@ -302,10 +398,7 @@ export default function RackMapScreen({ route, navigation }: any) {
                       return (
                         <Pressable
                           key={cell.position_id}
-                          onPress={() => {
-                            setSelectedPositionId(cell.position_id);
-                            setSelectedStockId(cell.stock[0]?.allocation_id ?? null);
-                          }}
+                          onPress={() => selectCell(cell)}
                           style={{
                             width: 72,
                             height: 64,
@@ -352,6 +445,15 @@ export default function RackMapScreen({ route, navigation }: any) {
         </Card>
 
         {selected ? (
+          <View
+            onLayout={(e) => {
+              cellCardY.current = e.nativeEvent.layout.y;
+              if (pendingCellScroll.current) {
+                pendingCellScroll.current = false;
+                smoothScrollTo(Math.max(e.nativeEvent.layout.y - 16, 0));
+              }
+            }}
+          >
           <Card>
             <Subtitle>
               Cell {selected.shelf}-{selected.cell.position_code}
@@ -367,7 +469,10 @@ export default function RackMapScreen({ route, navigation }: any) {
                 return (
                   <Pressable
                     key={s.allocation_id}
-                    onPress={() => setSelectedStockId(s.allocation_id)}
+                    onPress={() => {
+                      setSelectedStockId(s.allocation_id);
+                      openStockDetails(s, selected.shelf, selected.cell);
+                    }}
                     style={{
                       marginTop: 10,
                       paddingTop: 10,
@@ -388,11 +493,22 @@ export default function RackMapScreen({ route, navigation }: any) {
                       {s.item_name || 'Item'}
                     </Muted>
                     <Text style={{ color: colors.text, marginTop: 2 }}>Qty {s.quantity ?? '—'}</Text>
-                    {active ? <Muted>Selected for transfer</Muted> : null}
+                    <Muted>Tap for details & history</Muted>
                   </Pressable>
                 );
               })
             )}
+
+            {selectedStock?.allocation_id ? (
+              <View style={{ marginTop: 12 }}>
+                <Button
+                  label="View details & history"
+                  onPress={() =>
+                    openStockDetails(selectedStock, selected.shelf, selected.cell)
+                  }
+                />
+              </View>
+            ) : null}
 
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
               <View style={{ flex: 1 }}>
@@ -450,6 +566,7 @@ export default function RackMapScreen({ route, navigation }: any) {
             ) : null}
             {actionMsg ? <Muted>{actionMsg}</Muted> : null}
           </Card>
+          </View>
         ) : (
           <Card>
             <Muted>Select a cell on the map to view stock and allocate / transfer.</Muted>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { setOnAuthFailure } from '../api/client';
 import { authApi } from '../api/endpoints';
 import * as storage from '../utils/secureStorage';
@@ -11,6 +11,8 @@ type User = {
   last_name: string;
   role: string;
   employee_id?: string;
+  is_main_admin?: boolean;
+  is_active?: boolean;
 };
 
 type AuthContextValue = {
@@ -23,6 +25,22 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label}_timeout`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,19 +52,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    const BOOT_MS = 12000;
 
-    const boot = (async () => {
+    (async () => {
       try {
-        const token = await Promise.race([
-          storage.getItem('accessToken'),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
-        ]);
-        if (cancelled) return;
-        if (token) {
-          const { data } = await authApi.profile();
-          if (!cancelled) setUser(data);
+        // Wait for SecureStore — never treat a slow read as "logged out".
+        // On hard hang, timeout leaves tokens in place for the next cold start.
+        let token: string | null = null;
+        try {
+          token = await withTimeout(storage.getItem('accessToken'), 10000, 'secure_store');
+        } catch {
+          if (!cancelled) setLoading(false);
+          return;
         }
+        if (cancelled) return;
+
+        if (!token) {
+          setLoading(false);
+          return;
+        }
+
+        // Keep boot spinner until profile settles so Login does not flash.
+        const { data } = await withTimeout(authApi.profile(), 15000, 'profile');
+        if (!cancelled) setUser(data);
       } catch {
         await storage.deleteItem('accessToken');
         await storage.deleteItem('refreshToken');
@@ -56,45 +83,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })();
 
-    // Never leave Expo Go on a forever spinner if SecureStore/API hangs.
-    const failsafe = setTimeout(() => {
-      if (!cancelled) setLoading(false);
-    }, BOOT_MS);
-
     return () => {
       cancelled = true;
-      clearTimeout(failsafe);
-      void boot;
     };
+  }, []);
+
+  const login = useCallback(async (username: string, password: string) => {
+    const { data } = await authApi.login(username, password);
+    await storage.setItem('accessToken', data.access);
+    await storage.setItem('refreshToken', data.refresh);
+    setUser(data.user);
+  }, []);
+
+  const logout = useCallback(async () => {
+    const refresh = await storage.getItem('refreshToken');
+    try {
+      if (refresh) await authApi.logout(refresh);
+    } catch {
+      // ignore
+    }
+    await storage.deleteItem('accessToken');
+    await storage.deleteItem('refreshToken');
+    setUser(null);
+  }, []);
+
+  // Stable identity — must not recreate when `user` changes (avoids focus-effect loops).
+  const refreshProfile = useCallback(async () => {
+    const { data } = await authApi.profile();
+    setUser(data);
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       loading,
-      async login(username, password) {
-        const { data } = await authApi.login(username, password);
-        await storage.setItem('accessToken', data.access);
-        await storage.setItem('refreshToken', data.refresh);
-        setUser(data.user);
-      },
-      async logout() {
-        const refresh = await storage.getItem('refreshToken');
-        try {
-          if (refresh) await authApi.logout(refresh);
-        } catch {
-          // ignore
-        }
-        await storage.deleteItem('accessToken');
-        await storage.deleteItem('refreshToken');
-        setUser(null);
-      },
-      async refreshProfile() {
-        const { data } = await authApi.profile();
-        setUser(data);
-      },
+      login,
+      logout,
+      refreshProfile,
     }),
-    [user, loading]
+    [user, loading, login, logout, refreshProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,12 +1,13 @@
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { LogoutIcon, MORE_LINK_ICONS, UserIcon } from '../components/icons';
 import { Badge, Card, Muted, Screen, SectionLabel } from '../components/ui';
-import { colors } from '../theme/tokens';
+import { PageHeader } from '../components/PageHeader';
+import { colors, fonts } from '../theme/tokens';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
-import { moreLinksForRole, roleBlurb, roleLabel } from '../utils/roles';
+import { moreLinksForRole, roleLabel } from '../utils/roles';
 
 export default function MoreScreen() {
   const { user, logout } = useAuth();
@@ -17,27 +18,16 @@ export default function MoreScreen() {
   return (
     <Screen style={{ padding: 0 }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}>
-        <Muted>{roleBlurb(user?.role)}</Muted>
+        <PageHeader title="More" safeTop />
 
-        <Card style={{ marginTop: 12 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-              <View
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 14,
-                  backgroundColor: colors.primarySoft,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
+        <Card>
+          <View style={styles.profileRow}>
+            <View style={styles.profileLeft}>
+              <View style={styles.avatar}>
                 <UserIcon size={24} color={colors.primaryDark} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: '800', color: colors.navy, fontSize: 16 }}>
-                  {user?.first_name || user?.username}
-                </Text>
+                <Text style={styles.profileName}>{user?.first_name || user?.username}</Text>
                 <Muted>
                   {user?.username} · {user?.employee_id || 'no emp id'}
                 </Muted>
@@ -69,21 +59,12 @@ export default function MoreScreen() {
               style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
             >
               <Card>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <View
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 12,
-                      backgroundColor: colors.surfaceMuted,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
+                <View style={styles.linkRow}>
+                  <View style={styles.linkIcon}>
                     {Icon ? <Icon size={22} color={colors.primaryDark} /> : null}
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: '800', color: colors.navy, fontSize: 16 }}>{link.title}</Text>
+                    <Text style={styles.linkTitle}>{link.title}</Text>
                     <Muted>{link.subtitle}</Muted>
                   </View>
                 </View>
@@ -94,10 +75,10 @@ export default function MoreScreen() {
 
         <Pressable onPress={logout}>
           <Card style={{ backgroundColor: colors.dangerSoft }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={styles.linkRow}>
               <LogoutIcon size={22} />
               <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: '800', color: colors.danger }}>Sign out</Text>
+                <Text style={styles.signOut}>Sign out</Text>
                 <Muted>Clear session on this device</Muted>
               </View>
             </View>
@@ -107,3 +88,48 @@ export default function MoreScreen() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  profileRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  profileLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileName: {
+    fontFamily: fonts.uiBold,
+    color: colors.navy,
+    fontSize: 16,
+  },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  linkIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  linkTitle: {
+    fontFamily: fonts.uiBold,
+    color: colors.navy,
+    fontSize: 16,
+  },
+  signOut: {
+    fontFamily: fonts.uiBold,
+    color: colors.danger,
+  },
+});

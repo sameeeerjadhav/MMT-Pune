@@ -10,7 +10,9 @@ import {
   ViewStyle,
 } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
-import { colors, radius, shadow, spacing } from '../theme/tokens';
+import { FilterIcon, SearchIcon } from './icons';
+import { ListSkeleton } from './Skeleton';
+import { colors, fonts, radius, shadow, spacing } from '../theme/tokens';
 
 export function Screen({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
   return <View style={[styles.screen, style]}>{children}</View>;
@@ -124,9 +126,12 @@ export function ActionTile({
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.tile, { backgroundColor: bg, opacity: pressed ? 0.9 : 1 }]}
+      style={({ pressed }) => [
+        styles.tile,
+        { backgroundColor: bg, opacity: pressed ? 0.92 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] },
+      ]}
     >
-      {icon ? <View style={{ marginBottom: 8 }}>{icon}</View> : null}
+      {icon ? <View style={styles.tileIcon}>{icon}</View> : null}
       <Text style={[styles.tileTitle, { color: titleColor }]}>{title}</Text>
       {subtitle ? <Text style={styles.tileSub}>{subtitle}</Text> : null}
     </Pressable>
@@ -142,6 +147,7 @@ export function Metric({
 }) {
   return (
     <View style={styles.metric}>
+      <View style={styles.metricAccent} />
       <Text style={styles.metricValue}>{value}</Text>
       <Text style={styles.metricLabel}>{label}</Text>
     </View>
@@ -168,7 +174,7 @@ export function Input({
   );
 }
 
-/** Search field with an X clear control that restores the full list. */
+/** Search field with leading search icon + optional filter dropdown control on the right. */
 export function SearchInput({
   label,
   value,
@@ -176,6 +182,10 @@ export function SearchInput({
   onClear,
   onSubmitEditing,
   placeholder,
+  searching,
+  onFilterPress,
+  filterOpen,
+  filterActive,
   ...props
 }: Omit<React.ComponentProps<typeof TextInput>, 'value' | 'onChangeText'> & {
   label?: string;
@@ -183,16 +193,28 @@ export function SearchInput({
   onChangeText: (text: string) => void;
   /** Called after value is cleared — reload all records here. */
   onClear?: () => void;
+  /** Optional spinner in the trailing slot while a live search is in flight. */
+  searching?: boolean;
+  /** When set, shows a small filter button on the right of the search bar. */
+  onFilterPress?: () => void;
+  filterOpen?: boolean;
+  /** Dot badge when any filter is applied. */
+  filterActive?: boolean;
 }) {
   const clear = () => {
     onChangeText('');
     onClear?.();
   };
+  const hasFilter = Boolean(onFilterPress);
+  const trailingPad = hasFilter ? (value || searching ? 84 : 48) : 44;
 
   return (
     <View style={{ marginBottom: spacing.sm }}>
       {label ? <FieldLabel>{label}</FieldLabel> : null}
       <View style={styles.searchWrap}>
+        <View style={styles.searchIconSlot} pointerEvents="none">
+          <SearchIcon size={18} color={colors.muted} />
+        </View>
         <TextInput
           {...props}
           value={value}
@@ -201,22 +223,83 @@ export function SearchInput({
           placeholder={placeholder}
           placeholderTextColor={colors.muted}
           returnKeyType={props.returnKeyType ?? 'search'}
-          style={[styles.input, styles.searchInput, props.style]}
+          style={[styles.input, styles.searchInput, { paddingRight: trailingPad }, props.style]}
         />
-        {value ? (
-          <Pressable
-            onPress={clear}
-            accessibilityLabel="Clear search"
-            hitSlop={10}
-            style={({ pressed }) => [styles.searchClear, { opacity: pressed ? 0.6 : 1 }]}
-          >
-            <View style={styles.searchClearBtn}>
-              <Text style={styles.searchClearX}>×</Text>
-            </View>
-          </Pressable>
-        ) : null}
+        <View style={styles.searchTrailing}>
+          {searching ? (
+            <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 4 }} />
+          ) : value ? (
+            <Pressable
+              onPress={clear}
+              accessibilityLabel="Clear search"
+              hitSlop={8}
+              style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}
+            >
+              <View style={styles.searchClearBtn}>
+                <Text style={styles.searchClearX}>×</Text>
+              </View>
+            </Pressable>
+          ) : null}
+          {hasFilter ? (
+            <Pressable
+              onPress={onFilterPress}
+              accessibilityLabel={filterOpen ? 'Hide filters' : 'Show filters'}
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.searchFilterBtn,
+                filterOpen && styles.searchFilterBtnOpen,
+                filterActive && styles.searchFilterBtnActive,
+                { opacity: pressed ? 0.75 : 1 },
+              ]}
+            >
+              <FilterIcon
+                size={16}
+                color={filterOpen || filterActive ? colors.primaryDark : colors.muted}
+              />
+              {filterActive ? <View style={styles.searchFilterDot} /> : null}
+            </Pressable>
+          ) : null}
+        </View>
       </View>
     </View>
+  );
+}
+
+/** Horizontal filter chips for stock / list screens. */
+export function FilterChips({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.filterChipRow}
+      style={{ marginBottom: spacing.sm }}
+    >
+      {options.map((opt) => {
+        const selected = value === opt.value;
+        return (
+          <Pressable
+            key={opt.value}
+            onPress={() => onChange(opt.value)}
+            style={[
+              styles.filterChip,
+              selected && styles.filterChipSelected,
+            ]}
+          >
+            <Text style={[styles.filterChipText, selected && styles.filterChipTextSelected]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
   );
 }
 
@@ -341,7 +424,7 @@ export function TextAction({
       hitSlop={8}
       style={({ pressed }) => ({ opacity: disabled ? 0.4 : pressed ? 0.65 : 1, paddingVertical: 2 })}
     >
-      <Text style={{ color, fontWeight: '700', fontSize: 13, letterSpacing: 0.1 }}>{label}</Text>
+      <Text style={{ color, fontFamily: fonts.uiSemi, fontSize: 13, letterSpacing: 0.1 }}>{label}</Text>
     </Pressable>
   );
 }
@@ -435,18 +518,14 @@ export function Badge({
           : colors.primaryDark;
   return (
     <View style={[styles.badge, { backgroundColor: bg }]}>
-      <Text style={{ color, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+      <Text style={{ color, fontFamily: fonts.uiSemi, fontSize: 12 }}>{label}</Text>
     </View>
   );
 }
 
 export function LoadingState() {
-  return (
-    <View style={styles.center}>
-      <ActivityIndicator size="large" color={colors.primary} />
-      <Muted>Loading...</Muted>
-    </View>
-  );
+  // Prefer page-shaped skeletons over a centered spinner.
+  return <ListSkeleton rows={5} showSearch={false} titleWidth="36%" />;
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
@@ -511,35 +590,42 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
     ...shadow.soft,
   },
   cardPad: { padding: spacing.md },
   title: {
+    fontFamily: fonts.display,
     fontSize: 28,
-    fontWeight: '800',
     color: colors.navy,
-    letterSpacing: -0.4,
+    letterSpacing: -0.5,
     marginBottom: spacing.xs,
   },
   subtitle: {
+    fontFamily: fonts.uiSemi,
     fontSize: 16,
-    fontWeight: '700',
     color: colors.text,
     marginBottom: spacing.xs,
   },
   sectionLabel: {
+    fontFamily: fonts.uiSemi,
     fontSize: 12,
-    fontWeight: '700',
     color: colors.muted,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 0.7,
     marginBottom: spacing.sm,
-    marginTop: spacing.xs,
+    marginTop: spacing.md,
   },
-  muted: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  muted: {
+    fontFamily: fonts.ui,
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+  },
   fieldLabel: {
+    fontFamily: fonts.uiSemi,
     fontSize: 13,
-    fontWeight: '700',
     color: colors.navy,
     marginBottom: 6,
   },
@@ -551,42 +637,92 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     marginVertical: spacing.xs,
   },
-  buttonText: { fontWeight: '700', fontSize: 16 },
+  buttonText: { fontFamily: fonts.uiBold, fontSize: 16 },
   tile: {
     width: '48%',
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  tileTitle: { fontWeight: '800', fontSize: 15, marginBottom: 4 },
-  tileSub: { color: colors.muted, fontSize: 12, lineHeight: 16 },
+  tileIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  tileTitle: { fontFamily: fonts.uiBold, fontSize: 15, marginBottom: 4 },
+  tileSub: { fontFamily: fonts.ui, color: colors.muted, fontSize: 12, lineHeight: 16 },
   metric: {
     flex: 1,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     padding: spacing.md,
     minWidth: '30%',
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    overflow: 'hidden',
+    ...shadow.soft,
   },
-  metricValue: { fontSize: 20, fontWeight: '800', color: colors.navy },
-  metricLabel: { fontSize: 12, color: colors.muted, marginTop: 4 },
+  metricAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: colors.primary,
+  },
+  metricValue: {
+    fontFamily: fonts.displaySemi,
+    fontSize: 22,
+    color: colors.navy,
+    letterSpacing: -0.4,
+  },
+  metricLabel: {
+    fontFamily: fonts.uiMedium,
+    fontSize: 12,
+    color: colors.muted,
+    marginTop: 4,
+  },
   input: {
     borderWidth: 1,
     borderColor: colors.borderSoft,
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.surface,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: 14,
     marginBottom: spacing.sm,
     color: colors.text,
     fontSize: 16,
+    fontFamily: fonts.ui,
   },
   searchWrap: {
     position: 'relative',
     justifyContent: 'center',
+    ...shadow.soft,
+    borderRadius: radius.xl,
+  },
+  searchIconSlot: {
+    position: 'absolute',
+    left: 16,
+    top: 0,
+    bottom: 0,
+    zIndex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   searchInput: {
     marginBottom: 0,
+    paddingLeft: 46,
     paddingRight: 44,
+    borderRadius: radius.xl,
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    minHeight: 52,
   },
   searchClear: {
     position: 'absolute',
@@ -595,6 +731,70 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  searchTrailing: {
+    position: 'absolute',
+    right: 8,
+    top: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  searchFilterBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+  },
+  searchFilterBtnOpen: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary,
+  },
+  searchFilterBtnActive: {
+    borderColor: colors.primary,
+  },
+  searchFilterDot: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.accent,
+    borderWidth: 1,
+    borderColor: colors.surface,
+  },
+  filterChipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingRight: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+  },
+  filterChipSelected: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary,
+  },
+  filterChipText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontFamily: fonts.uiMedium,
+  },
+  filterChipTextSelected: {
+    color: colors.primaryDark,
+    fontFamily: fonts.uiSemi,
   },
   searchClearBtn: {
     width: 26,
@@ -689,6 +889,14 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginVertical: spacing.sm,
   },
-  fifoTitle: { color: colors.warning, fontWeight: '800', marginBottom: 4 },
-  fifoMsg: { color: colors.text, lineHeight: 20 },
+  fifoTitle: {
+    color: colors.warning,
+    fontFamily: fonts.uiBold,
+    marginBottom: 4,
+  },
+  fifoMsg: {
+    color: colors.text,
+    fontFamily: fonts.ui,
+    lineHeight: 20,
+  },
 });

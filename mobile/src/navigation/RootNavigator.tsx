@@ -2,15 +2,18 @@ import React, { useMemo } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { ActivityIndicator, Platform, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { TabGlyph } from '../components/icons';
-import { colors } from '../theme/tokens';
+import { BootLoading } from '../components/BootLoading';
+import { colors, fonts } from '../theme/tokens';
 import { canAccessTab, primaryTabsForRole } from '../utils/roles';
+import { stackScreenOptions } from './headerOptions';
 
 import LoginScreen from '../screens/LoginScreen';
 import DashboardScreen from '../screens/DashboardScreen';
+import ProfileScreen from '../screens/ProfileScreen';
 import InventoryListScreen from '../screens/InventoryListScreen';
 import ItemMasterScreen from '../screens/ItemMasterScreen';
 import BatchDetailScreen from '../screens/BatchDetailScreen';
@@ -27,6 +30,7 @@ import {
 } from '../screens/WarehouseScreens';
 import RackMapScreen from '../screens/RackMapScreen';
 import FloorMapScreen from '../screens/FloorMapScreen';
+import AllocationDetailScreen from '../screens/AllocationDetailScreen';
 import WithdrawalScreen from '../screens/WithdrawalScreen';
 import WithdrawalConfirmScreen from '../screens/WithdrawalConfirmScreen';
 import ReportsScreen from '../screens/ReportsScreen';
@@ -37,20 +41,29 @@ import MoreScreen from '../screens/MoreScreen';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-export const stackScreenOptions = {
-  headerStyle: { backgroundColor: colors.surface },
-  headerShadowVisible: false,
-  headerTintColor: colors.navy,
-  headerTitleStyle: { fontWeight: '700' as const, fontSize: 17 },
-  headerTitleAlign: 'center' as const,
-  contentStyle: { backgroundColor: colors.background },
-  headerBackTitleVisible: false,
-};
+export { stackScreenOptions };
+
+function DashboardStack() {
+  return (
+    <Stack.Navigator screenOptions={stackScreenOptions}>
+      <Stack.Screen
+        name="DashboardHome"
+        component={DashboardScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'My profile' }} />
+    </Stack.Navigator>
+  );
+}
 
 function InventoryStack() {
   return (
     <Stack.Navigator screenOptions={stackScreenOptions}>
-      <Stack.Screen name="InventoryList" component={InventoryListScreen} options={{ title: 'Inventory' }} />
+      <Stack.Screen
+        name="InventoryList"
+        component={InventoryListScreen}
+        options={{ headerShown: false }}
+      />
       <Stack.Screen name="ItemMaster" component={ItemMasterScreen} options={{ title: 'Items' }} />
       <Stack.Screen name="BatchDetail" component={BatchDetailScreen} options={{ title: 'Batch' }} />
       <Stack.Screen name="UnitDetail" component={UnitDetailScreen} options={{ title: 'Unit' }} />
@@ -61,7 +74,7 @@ function InventoryStack() {
 function GRNStack() {
   return (
     <Stack.Navigator screenOptions={stackScreenOptions}>
-      <Stack.Screen name="GRNList" component={GRNListScreen} options={{ title: 'GRN' }} />
+      <Stack.Screen name="GRNList" component={GRNListScreen} options={{ headerShown: false }} />
       <Stack.Screen name="GRNDetail" component={GRNDetailScreen} options={{ title: 'GRN Detail' }} />
       <Stack.Screen name="GRNImport" component={GRNImportScreen} options={{ title: 'Import GRN' }} />
     </Stack.Navigator>
@@ -71,10 +84,19 @@ function GRNStack() {
 function WarehouseStack() {
   return (
     <Stack.Navigator screenOptions={stackScreenOptions}>
-      <Stack.Screen name="WarehouseList" component={WarehouseListScreen} options={{ title: 'Floors' }} />
+      <Stack.Screen
+        name="WarehouseList"
+        component={WarehouseListScreen}
+        options={{ headerShown: false }}
+      />
       <Stack.Screen name="FloorMap" component={FloorMapScreen} options={{ title: 'Floor map' }} />
       <Stack.Screen name="RackMap" component={RackMapScreen} options={{ title: 'Rack map' }} />
       <Stack.Screen name="RackDetail" component={RackDetailScreen} options={{ title: 'Rack' }} />
+      <Stack.Screen
+        name="AllocationDetail"
+        component={AllocationDetailScreen}
+        options={{ title: 'Stock details' }}
+      />
       <Stack.Screen name="Allocate" component={AllocateScreen} options={{ title: 'Allocate' }} />
       <Stack.Screen name="Transfer" component={TransferScreen} options={{ title: 'Transfer' }} />
     </Stack.Navigator>
@@ -84,8 +106,16 @@ function WarehouseStack() {
 function WithdrawalStack() {
   return (
     <Stack.Navigator screenOptions={stackScreenOptions}>
-      <Stack.Screen name="WithdrawalMain" component={WithdrawalScreen} options={{ title: 'Withdrawal' }} />
-      <Stack.Screen name="WithdrawalConfirm" component={WithdrawalConfirmScreen} options={{ title: 'Confirmed' }} />
+      <Stack.Screen
+        name="WithdrawalMain"
+        component={WithdrawalScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="WithdrawalConfirm"
+        component={WithdrawalConfirmScreen}
+        options={{ title: 'Confirmed' }}
+      />
     </Stack.Navigator>
   );
 }
@@ -94,12 +124,11 @@ type TabDef = {
   name: string;
   title: string;
   component: React.ComponentType<any>;
-  /** Nested stack already owns the top bar */
   isStack?: boolean;
 };
 
 const TAB_DEFS: TabDef[] = [
-  { name: 'Dashboard', title: 'Home', component: DashboardScreen },
+  { name: 'Dashboard', title: 'Home', component: DashboardStack, isStack: true },
   { name: 'Scanner', title: 'Scanner', component: ScannerScreen },
   { name: 'Inventory', title: 'Stock', component: InventoryStack, isStack: true },
   { name: 'Withdrawal', title: 'Out', component: WithdrawalStack, isStack: true },
@@ -115,7 +144,6 @@ function MainTabs() {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const visible = useMemo(() => new Set(primaryTabsForRole(user?.role)), [user?.role]);
-  // Gesture nav often reports 0 inset in Expo Go — keep a floor so labels aren't covered.
   const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 18 : 0);
 
   const ordered = useMemo(() => {
@@ -131,18 +159,13 @@ function MainTabs() {
     <Tab.Navigator
       safeAreaInsets={{ bottom: bottomInset }}
       screenOptions={{
-        headerShown: true,
-        headerStyle: stackScreenOptions.headerStyle,
-        headerShadowVisible: stackScreenOptions.headerShadowVisible,
-        headerTintColor: stackScreenOptions.headerTintColor,
-        headerTitleStyle: stackScreenOptions.headerTitleStyle,
-        headerTitleAlign: stackScreenOptions.headerTitleAlign,
+        headerShown: false,
         tabBarHideOnKeyboard: true,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.tabInactive,
         tabBarLabelStyle: {
+          fontFamily: fonts.uiSemi,
           fontSize: 11,
-          fontWeight: '700',
           marginBottom: 2,
         },
         tabBarIconStyle: {
@@ -151,13 +174,12 @@ function MainTabs() {
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.borderSoft,
-          borderTopWidth: 1,
-          elevation: 12,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          elevation: 8,
           shadowColor: colors.navy,
-          shadowOpacity: 0.1,
-          shadowRadius: 10,
-          shadowOffset: { width: 0, height: -3 },
-          // Keep bar in normal layout (not absolute) so it never steals taps from forms.
+          shadowOpacity: 0.08,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: -4 },
           height: 56 + bottomInset,
           paddingTop: 6,
           paddingBottom: bottomInset,
@@ -173,8 +195,6 @@ function MainTabs() {
             component={tab.component}
             options={{
               title: tab.title,
-              // Nested stacks provide their own header — avoid double bars.
-              headerShown: show ? !tab.isStack : false,
               tabBarLabel: tab.title,
               tabBarButton: show ? undefined : () => null,
               tabBarItemStyle: show ? undefined : { display: 'none' },
@@ -194,17 +214,10 @@ export default function RootNavigator() {
 
   if (loading) {
     return (
-      <View
-        style={{
-          flex: 1,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: colors.background,
-        }}
-      >
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ marginTop: 10, color: colors.muted }}>Loading warehouse…</Text>
-      </View>
+      <BootLoading
+        message="Loading warehouse…"
+        hint="If this stays blank for more than a few seconds, reload the Expo app."
+      />
     );
   }
 

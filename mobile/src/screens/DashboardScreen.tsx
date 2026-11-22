@@ -1,6 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { dashboardApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -11,23 +13,24 @@ import {
   OutIcon,
   RackIcon,
   ScanIcon,
+  UserAvatarIcon,
 } from '../components/icons';
 import {
   ActionTile,
   Badge,
   Card,
   ErrorState,
-  LoadingState,
-  Metric,
   Muted,
   SectionLabel,
 } from '../components/ui';
-import { colors } from '../theme/tokens';
+import { DashboardSkeleton } from '../components/Skeleton';
+import { colors, fonts, radius, spacing } from '../theme/tokens';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { canAccess, roleLabel } from '../utils/roles';
 
 export default function DashboardScreen() {
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const scrollPad = useTabScrollPadding(28);
   const [data, setData] = useState<any>(null);
@@ -68,7 +71,7 @@ export default function DashboardScreen() {
         subtitle: 'Find stock fast',
         tab: 'Scanner',
         tone: 'primary',
-        icon: <ScanIcon size={22} color={colors.primaryDark} />,
+        icon: <ScanIcon size={20} color={colors.primaryDark} />,
       });
     }
     if (canAccess(role, 'withdrawal')) {
@@ -77,148 +80,263 @@ export default function DashboardScreen() {
         subtitle: 'Ship / assemble',
         tab: 'Withdrawal',
         tone: 'accent',
-        icon: <OutIcon size={22} color={colors.accent} />,
+        icon: <OutIcon size={20} color={colors.accent} />,
       });
     }
     if (canAccess(role, 'warehouse')) {
       items.push({
         title: 'Floors',
-        subtitle: 'Floor maps & stock',
+        subtitle: 'Maps & putaway',
         tab: 'Warehouse',
         tone: 'navy',
-        icon: <RackIcon size={22} color={colors.navy} />,
+        icon: <RackIcon size={20} color={colors.navy} />,
       });
     }
     if (canAccess(role, 'grn')) {
       items.push({
-        title: canAccess(role, 'grnImport') ? 'GRN / Import' : 'GRN',
-        subtitle: canAccess(role, 'grnImport') ? 'Receive & import' : 'View receipts',
+        title: canAccess(role, 'grnImport') ? 'GRN' : 'GRN',
+        subtitle: canAccess(role, 'grnImport') ? 'Receive goods' : 'View receipts',
         tab: 'GRN',
         tone: 'success',
-        icon: <DocIcon size={22} color={colors.success} />,
+        icon: <DocIcon size={20} color={colors.success} />,
       });
     }
     if (canAccess(role, 'reports')) {
       items.push({
         title: 'Reports',
-        subtitle: 'Stock & FIFO',
+        subtitle: 'Stock & age order',
         tab: 'Reports',
         tone: 'navy',
-        icon: <ChartIcon size={22} color={colors.navy} />,
+        icon: <ChartIcon size={20} color={colors.navy} />,
       });
     }
     if (canAccess(role, 'inventory')) {
       items.push({
-        title: 'Inventory',
+        title: 'Stock',
         subtitle: 'Batches & units',
         tab: 'Inventory',
         tone: 'primary',
-        icon: <CubeIcon size={22} color={colors.primaryDark} />,
+        icon: <CubeIcon size={20} color={colors.primaryDark} />,
       });
     }
     return items.slice(0, 6);
   }, [user?.role]);
 
-  if (loading && !data) return <LoadingState />;
+  if (loading && !data) return <DashboardSkeleton />;
   if (error && !data) return <ErrorState message={error} onRetry={load} />;
 
+  const fifoCount = (data?.fifo_alerts || []).length;
+
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <View style={styles.root}>
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+        contentContainerStyle={{ paddingBottom: scrollPad }}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor="#fff" />}
       >
-        <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12, letterSpacing: 0.7 }}>
-          {roleLabel(user?.role).toUpperCase()}
-        </Text>
-        <Text
-          style={{
-            fontSize: 24,
-            fontWeight: '800',
-            color: colors.navy,
-            letterSpacing: -0.4,
-            marginTop: 4,
-          }}
+        <LinearGradient
+          colors={[colors.heroFrom, colors.heroTo]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.hero, { paddingTop: Math.max(insets.top, 12) + 8 }]}
         >
-          Hello, {user?.first_name || user?.username}
-        </Text>
-        <Muted>Live warehouse overview from PostgreSQL</Muted>
-
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 18 }}>
-          <Metric label="Available qty" value={data?.available_quantity ?? '—'} />
-          <Metric label="Bulk batches" value={data?.bulk_batches ?? '—'} />
-          <Metric label="Units" value={data?.individual_units ?? '—'} />
-        </View>
-
-        <SectionLabel>Quick actions</SectionLabel>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-          {actions.map((a) => (
-            <ActionTile
-              key={a.tab + a.title}
-              title={a.title}
-              subtitle={a.subtitle}
-              tone={a.tone}
-              icon={a.icon}
-              onPress={() => {
-                if (a.tab === 'Withdrawal') {
-                  navigation.navigate('Withdrawal', {
-                    screen: 'WithdrawalMain',
-                    params: { batchId: undefined, unitId: undefined, resetKey: Date.now() },
-                  });
-                  return;
-                }
-                navigation.navigate(a.tab);
-              }}
-            />
-          ))}
-        </View>
-
-        <SectionLabel>FIFO alerts</SectionLabel>
-        <Card>
-          {(data?.fifo_alerts || []).length === 0 ? <Muted>No FIFO conflicts right now</Muted> : null}
-          {(data?.fifo_alerts || []).map((a: any, idx: number) => (
-            <Pressable
-              key={`${a.older_id || a.older}-${a.newer_id || a.newer}-${idx}`}
-              onPress={() => {
-                if (a.older_id) {
-                  navigation.navigate('Inventory', {
-                    screen: 'BatchDetail',
-                    params: { id: a.older_id },
-                  });
-                }
-              }}
-              style={{ marginBottom: idx === (data?.fifo_alerts?.length || 1) - 1 ? 0 : 12 }}
-            >
-              <Badge label="FIFO" tone="warning" />
-              <Text style={{ marginTop: 6, color: colors.text, lineHeight: 20 }}>
-                {a.item}: withdraw {a.older} before {a.newer} (avail {a.older_available})
+          <View style={styles.heroTop}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.heroEyebrow}>{roleLabel(user?.role).toUpperCase()}</Text>
+              <Text style={styles.heroTitle} numberOfLines={1}>
+                Hello, {user?.first_name || user?.username}
               </Text>
-              {a.older_id ? <Muted>Tap to open older batch</Muted> : null}
-            </Pressable>
-          ))}
-        </Card>
-
-        <SectionLabel>Recent withdrawals</SectionLabel>
-        <Card>
-          {(data?.recent_withdrawals || []).length === 0 ? <Muted>No recent withdrawals</Muted> : null}
-          {(data?.recent_withdrawals || []).map((w: any) => (
+            </View>
             <Pressable
-              key={w.id}
-              onPress={() =>
-                navigation.navigate('Withdrawal', {
-                  screen: 'WithdrawalConfirm',
-                  params: { id: w.id },
-                })
-              }
-              style={{ marginBottom: 8 }}
+              onPress={() => navigation.navigate('Profile')}
+              accessibilityLabel="Open my profile"
+              hitSlop={8}
+              style={({ pressed }) => [styles.userLogo, { opacity: pressed ? 0.85 : 1 }]}
             >
-              <Text style={{ color: colors.text, fontWeight: '600' }}>
-                #{w.id} · {w.purpose} — {w.user}
-              </Text>
+              <UserAvatarIcon size={44} color="#fff" backgroundColor="#4A4A4A" />
             </Pressable>
-          ))}
-        </Card>
+          </View>
+
+          <View style={styles.heroMetrics}>
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricValue}>{data?.available_quantity ?? '—'}</Text>
+              <Text style={styles.heroMetricLabel}>Available</Text>
+            </View>
+            <View style={styles.heroMetricDivider} />
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricValue}>{data?.bulk_batches ?? '—'}</Text>
+              <Text style={styles.heroMetricLabel}>Batches</Text>
+            </View>
+            <View style={styles.heroMetricDivider} />
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricValue}>{data?.individual_units ?? '—'}</Text>
+              <Text style={styles.heroMetricLabel}>Units</Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        <View style={styles.body}>
+          <SectionLabel>Quick actions</SectionLabel>
+          <View style={styles.actionGrid}>
+            {actions.map((a) => (
+              <ActionTile
+                key={a.tab + a.title}
+                title={a.title}
+                subtitle={a.subtitle}
+                tone={a.tone}
+                icon={a.icon}
+                onPress={() => {
+                  if (a.tab === 'Withdrawal') {
+                    navigation.navigate('Withdrawal', {
+                      screen: 'WithdrawalMain',
+                      params: { batchId: undefined, unitId: undefined, resetKey: Date.now() },
+                    });
+                    return;
+                  }
+                  navigation.navigate(a.tab);
+                }}
+              />
+            ))}
+          </View>
+
+          <SectionLabel>Older stock alerts</SectionLabel>
+          <Card>
+            {fifoCount === 0 ? (
+              <Muted>No older-stock conflicts right now</Muted>
+            ) : (
+              (data?.fifo_alerts || []).map((a: any, idx: number) => (
+                <Pressable
+                  key={`${a.older_id || a.older}-${a.newer_id || a.newer}-${idx}`}
+                  onPress={() => {
+                    if (a.older_id) {
+                      navigation.navigate('Inventory', {
+                        screen: 'BatchDetail',
+                        params: { id: a.older_id },
+                      });
+                    }
+                  }}
+                  style={{ marginBottom: idx === fifoCount - 1 ? 0 : 14 }}
+                >
+                  <Badge label="Older first" tone="warning" />
+                  <Text style={styles.alertText}>
+                    {a.item}: withdraw {a.older} before {a.newer}
+                  </Text>
+                  <Muted>Avail {a.older_available}{a.older_id ? ' · Tap to open' : ''}</Muted>
+                </Pressable>
+              ))
+            )}
+          </Card>
+
+          <SectionLabel>Recent withdrawals</SectionLabel>
+          <Card>
+            {(data?.recent_withdrawals || []).length === 0 ? (
+              <Muted>No recent withdrawals</Muted>
+            ) : (
+              (data?.recent_withdrawals || []).map((w: any, idx: number, arr: any[]) => (
+                <Pressable
+                  key={w.id}
+                  onPress={() =>
+                    navigation.navigate('Withdrawal', {
+                      screen: 'WithdrawalConfirm',
+                      params: { id: w.id },
+                    })
+                  }
+                  style={[styles.rowItem, idx < arr.length - 1 && styles.rowDivider]}
+                >
+                  <Text style={styles.rowTitle}>
+                    #{w.id} · {w.purpose}
+                  </Text>
+                  <Muted>{w.user}</Muted>
+                </Pressable>
+              ))
+            )}
+          </Card>
+        </View>
       </ScrollView>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
+  hero: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    borderBottomLeftRadius: radius.xl,
+    borderBottomRightRadius: radius.xl,
+  },
+  heroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  userLogo: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  heroEyebrow: {
+    fontFamily: fonts.uiSemi,
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 11,
+    letterSpacing: 1.1,
+  },
+  heroTitle: {
+    fontFamily: fonts.display,
+    color: '#fff',
+    fontSize: 30,
+    letterSpacing: -0.7,
+    marginTop: 6,
+  },
+  heroMetrics: {
+    marginTop: spacing.lg,
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderRadius: radius.lg,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  heroMetric: { flex: 1, alignItems: 'center' },
+  heroMetricValue: {
+    fontFamily: fonts.displaySemi,
+    color: '#fff',
+    fontSize: 20,
+    letterSpacing: -0.3,
+  },
+  heroMetricLabel: {
+    fontFamily: fonts.uiMedium,
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  heroMetricDivider: {
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginVertical: 2,
+  },
+  body: { padding: spacing.md, paddingTop: spacing.lg },
+  actionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  alertText: {
+    fontFamily: fonts.uiMedium,
+    marginTop: 6,
+    color: colors.text,
+    lineHeight: 20,
+  },
+  rowItem: { paddingVertical: 8 },
+  rowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSoft,
+  },
+  rowTitle: {
+    fontFamily: fonts.uiSemi,
+    color: colors.text,
+  },
+});

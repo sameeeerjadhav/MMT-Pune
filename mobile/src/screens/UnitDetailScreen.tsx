@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { Image, ScrollView, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { inventoryApi } from '../api/endpoints';
+import { inventoryApi, barcodeApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { CubeIcon } from '../components/icons';
-import { Badge, Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle } from '../components/ui';
+import { StockLogo } from '../components/icons';
+import { Badge, Button, Card, ErrorState, Muted, Screen, Subtitle } from '../components/ui';
+import { DetailSkeleton } from '../components/Skeleton';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
+import { downloadOrBuildBarcodePdf } from '../utils/barcodePdf';
 import { colors, radius } from '../theme/tokens';
 import { canAccess } from '../utils/roles';
 
@@ -38,12 +40,17 @@ export default function UnitDetailScreen({ route, navigation }: any) {
   const scrollPad = useTabScrollPadding(28);
   const [unit, setUnit] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
+  const [labelUri, setLabelUri] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [printMsg, setPrintMsg] = useState('');
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState('');
+  const [imageBust, setImageBust] = useState(0);
+  const [removing, setRemoving] = useState(false);
   const [testingMsg, setTestingMsg] = useState('');
-  const [testingSaving, setTestingSaving] = useState(false);
+  const [testingSavingStatus, setTestingSavingStatus] = useState<string | null>(null);
 
   const load = async () => {
     setError('');
@@ -52,6 +59,17 @@ export default function UnitDetailScreen({ route, navigation }: any) {
       const [u, h] = await Promise.all([inventoryApi.unit(id), inventoryApi.history('unit', id)]);
       setUnit(u.data);
       setHistory(h.data);
+      setLabelUri(null);
+      if (u.data.barcode_value) {
+        try {
+          const detail = await barcodeApi.get(u.data.barcode_value);
+          if (detail.data.label_image_base64) {
+            setLabelUri(`data:image/png;base64,${detail.data.label_image_base64}`);
+          }
+        } catch {
+          /* label optional */
+        }
+      }
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -97,6 +115,7 @@ export default function UnitDetailScreen({ route, navigation }: any) {
           ? { ...prev, item: { ...prev.item, image: data.image, image_url: data.image_url } }
           : prev
       );
+      setImageBust(Date.now());
       setUploadMsg('Item photo updated');
     } catch (e) {
       setUploadMsg(getErrorMessage(e));
@@ -105,14 +124,40 @@ export default function UnitDetailScreen({ route, navigation }: any) {
     }
   };
 
-  if (loading) return <LoadingState />;
+  const removeItemImage = async () => {
+    if (!canManage || !unit?.item?.id) return;
+    setUploadMsg('');
+    setRemoving(true);
+    try {
+      await inventoryApi.deleteItemImage(unit.item.id);
+      setUnit((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              item: { ...prev.item, image: null, image_url: null },
+            }
+          : prev
+      );
+      setImageBust(Date.now());
+      setUploadMsg('Item photo removed');
+    } catch (e) {
+      setUploadMsg(getErrorMessage(e));
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  if (loading) return <DetailSkeleton />;
   if (error || !unit) return <ErrorState message={error || 'Not found'} onRetry={load} />;
 
   const alloc = (unit.allocations || []).find((a: any) => a.is_active && a.allocation_type === 'ACTUAL');
   const location = alloc
     ? `${alloc.warehouse} / ${alloc.rack} / ${alloc.shelf} / ${alloc.position_code}`
     : 'Unassigned';
-  const itemImage = unit.item?.image_url;
+  const rawImage = unit.item?.image_url as string | undefined;
+  const itemImage = rawImage
+    ? `${rawImage}${rawImage.includes('?') ? '&' : '?'}t=${imageBust || unit.item?.updated_at || unit.updated_at || 0}`
+    : null;
 
   return (
     <Screen style={{ padding: 0 }}>
@@ -135,15 +180,13 @@ export default function UnitDetailScreen({ route, navigation }: any) {
               style={{
                 height: 160,
                 borderRadius: radius.md,
-                backgroundColor: colors.primarySoft,
+                backgroundColor: colors.surfaceMuted,
                 alignItems: 'center',
                 justifyContent: 'center',
                 marginBottom: 12,
-                gap: 8,
               }}
             >
-              <CubeIcon size={36} color={colors.primaryDark} />
-              <Muted>No item photo yet</Muted>
+              <StockLogo size={110} />
             </View>
           )}
           <Text style={{ fontSize: 22, fontWeight: '800', color: colors.navy }}>{unit.item?.name}</Text>
@@ -153,12 +196,26 @@ export default function UnitDetailScreen({ route, navigation }: any) {
           <Muted>{unit.unit_code}</Muted>
           {canManage ? (
             <>
-              <Button
-                label={itemImage ? 'Change item photo' : 'Upload item photo'}
-                variant="secondary"
-                loading={uploading}
-                onPress={pickAndUploadImage}
-              />
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    label={itemImage ? 'Change item photo' : 'Upload item photo'}
+                    variant="secondary"
+                    loading={uploading}
+                    onPress={pickAndUploadImage}
+                  />
+                </View>
+                {itemImage ? (
+                  <View style={{ flex: 1 }}>
+                    <Button
+                      label="Remove photo"
+                      variant="ghost"
+                      loading={removing}
+                      onPress={removeItemImage}
+                    />
+                  </View>
+                ) : null}
+              </View>
               {uploadMsg ? <Muted>{uploadMsg}</Muted> : null}
             </>
           ) : null}
@@ -179,9 +236,10 @@ export default function UnitDetailScreen({ route, navigation }: any) {
                   key={status}
                   label={status}
                   variant={unit.testing_status === status ? 'primary' : 'secondary'}
-                  loading={testingSaving}
+                  loading={testingSavingStatus === status}
                   onPress={async () => {
-                    setTestingSaving(true);
+                    if (testingSavingStatus) return;
+                    setTestingSavingStatus(status);
                     setTestingMsg('');
                     try {
                       const { data } = await inventoryApi.updateUnitTesting(unit.id, status);
@@ -190,7 +248,7 @@ export default function UnitDetailScreen({ route, navigation }: any) {
                     } catch (e) {
                       setTestingMsg(getErrorMessage(e));
                     } finally {
-                      setTestingSaving(false);
+                      setTestingSavingStatus(null);
                     }
                   }}
                 />
@@ -201,11 +259,81 @@ export default function UnitDetailScreen({ route, navigation }: any) {
         </Card>
 
         <Card>
+          <Subtitle>Label preview (Code 128)</Subtitle>
+          {labelUri ? (
+            <Image
+              source={{ uri: labelUri }}
+              style={{ width: '100%', height: 160, resizeMode: 'contain', marginTop: 8, backgroundColor: '#fff' }}
+            />
+          ) : (
+            <Muted>{unit.barcode_value ? 'Label image unavailable' : 'No barcode on this unit'}</Muted>
+          )}
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+            <View style={{ flex: 1 }}>
+              <Button
+                label="Log print"
+                variant="secondary"
+                onPress={async () => {
+                  if (!unit.barcode_value) return;
+                  try {
+                    await barcodeApi.printLog(unit.barcode_value, { notes: 'mobile label preview' });
+                    setPrintMsg('Print logged');
+                  } catch (e) {
+                    setPrintMsg(getErrorMessage(e));
+                  }
+                }}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button
+                label="PDF"
+                variant="secondary"
+                loading={pdfLoading}
+                onPress={async () => {
+                  if (!unit.barcode_value) return;
+                  setPdfLoading(true);
+                  setPrintMsg('');
+                  try {
+                    const result = await downloadOrBuildBarcodePdf({
+                      barcodeValue: unit.barcode_value,
+                      labelPngDataUrl: labelUri,
+                      filename: `${unit.barcode_value}-label.pdf`,
+                    });
+                    setPrintMsg(
+                      result === 'printed'
+                        ? 'Use Save as PDF in the print dialog'
+                        : 'Share sheet opened — save or share the PDF'
+                    );
+                  } catch (e) {
+                    setPrintMsg(getErrorMessage(e));
+                  } finally {
+                    setPdfLoading(false);
+                  }
+                }}
+              />
+            </View>
+          </View>
+          {printMsg ? <Muted>{printMsg}</Muted> : null}
+        </Card>
+
+        <Card>
           <Subtitle>History</Subtitle>
           {history.length === 0 ? <Muted>No transactions yet</Muted> : null}
-          {history.map((tx) => (
-            <DetailRow key={tx.id} label={tx.type} value={String(tx.created_at).slice(0, 19)} />
-          ))}
+          {history.map((tx) => {
+            const title = tx.display_type || tx.type;
+            const loc =
+              tx.from_location && tx.to_location
+                ? `${tx.from_location} → ${tx.to_location}`
+                : tx.to_location || tx.from_location || '';
+            const bits = [loc, tx.user_name].filter(Boolean).join(' · ');
+            return (
+              <View key={tx.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.borderSoft }}>
+                <Text style={{ fontWeight: '700', color: colors.navy }}>{title}</Text>
+                {bits ? <Muted>{bits}</Muted> : null}
+                <Muted>{String(tx.created_at || '').slice(0, 19).replace('T', ' ')}</Muted>
+              </View>
+            );
+          })}
         </Card>
 
         {unit.status === 'AVAILABLE' ? (

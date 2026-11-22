@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser, UserManager as DjangoUserManager
-from django.db import models
+from django.db import models, transaction
+from django.db.models import Q
 
 
 class Role(models.Model):
@@ -60,3 +61,39 @@ class User(AbstractUser):
     def has_role(self, *codes):
         code = self.role_code
         return bool(code and code in codes)
+
+    def claim_main_admin_if_needed(self) -> bool:
+        """
+        Main admin = is_superuser. If this install has no superuser yet
+        (e.g. role was set to ADMIN in shell without is_superuser), the first
+        active ADMIN to hit this path becomes the sole main admin.
+
+        Locks all active admin/superuser rows (ordered by pk) so concurrent
+        login/profile calls cannot create multiple main admins.
+        """
+        if self.is_superuser:
+            return True
+        if self.role_code != Role.Code.ADMIN or not self.is_active:
+            return False
+
+        with transaction.atomic():
+            # Serialize claimers: lock the same admin set in a stable order.
+            locked = list(
+                type(self)
+                .objects.select_for_update()
+                .select_related('role')
+                .filter(
+                    Q(is_superuser=True)
+                    | Q(role__code=Role.Code.ADMIN, is_active=True)
+                )
+                .order_by('pk')
+            )
+            if any(u.is_superuser for u in locked):
+                return False
+            me = next((u for u in locked if u.pk == self.pk), None)
+            if me is None or me.role_code != Role.Code.ADMIN or not me.is_active:
+                return False
+            type(self).objects.filter(pk=self.pk).update(is_superuser=True, is_staff=True)
+            self.is_superuser = True
+            self.is_staff = True
+            return True

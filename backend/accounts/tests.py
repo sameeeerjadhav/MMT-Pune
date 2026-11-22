@@ -62,18 +62,19 @@ class AuthProfileTests(TestCase):
 
 class StaffUserAdminTests(TestCase):
     def setUp(self):
-        roles = {}
-        for code, name in [
-            ('ADMIN', 'Administrator'),
-            ('SUPERVISOR', 'Supervisor'),
-            ('WAREHOUSE_EMPLOYEE', 'Warehouse Employee'),
-        ]:
-            roles[code], _ = Role.objects.get_or_create(code=code, defaults={'name': name})
+        roles = User.objects.ensure_default_roles()
+        # Secondary admin (can manage supervisors/employees only).
         self.admin = User.objects.create_user(
-            username='staff_admin', password='pass12345', role=roles['ADMIN']
+            username='staff_admin', password='pass12345', role=roles['ADMIN'], is_staff=True
+        )
+        # Main admin (only account that may manage other admins).
+        self.main_admin = User.objects.create_superuser(
+            username='main_admin', password='pass12345'
         )
         self.employee = User.objects.create_user(
-            username='staff_emp', password='pass12345', role=roles['WAREHOUSE_EMPLOYEE']
+            username='staff_emp',
+            password='pass12345',
+            role=roles['WAREHOUSE_EMPLOYEE'],
         )
         self.client = APIClient()
 
@@ -125,15 +126,42 @@ class StaffUserAdminTests(TestCase):
         usernames = {u['username'] for u in listed.data}
         self.assertIn('new_sup', usernames)
         self.assertIn('new_emp', usernames)
+        # Admins can see other admin accounts in the list.
+        self.assertIn('main_admin', usernames)
+        self.assertIn('staff_admin', usernames)
 
-    def test_admin_cannot_create_another_admin_via_api(self):
+    def test_any_admin_can_create_another_admin(self):
         self.client.force_authenticate(user=self.admin)
         res = self.client.post(
             '/api/users/',
-            {'username': 'hacker', 'password': 'pass12345', 'role': 'ADMIN'},
+            {'username': 'peer_admin', 'password': 'pass12345', 'role': 'ADMIN'},
             format='json',
         )
-        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data['role'], 'ADMIN')
+        self.assertFalse(res.data['is_main_admin'])
+        created = User.objects.get(username='peer_admin')
+        self.assertTrue(created.is_staff)
+        self.assertFalse(created.is_superuser)
+
+    def test_main_admin_can_create_secondary_admin(self):
+        self.client.force_authenticate(user=self.main_admin)
+        res = self.client.post(
+            '/api/users/',
+            {
+                'username': 'second_admin',
+                'password': 'pass12345',
+                'role': 'ADMIN',
+                'first_name': 'Pat',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data['role'], 'ADMIN')
+        self.assertFalse(res.data['is_main_admin'])
+        created = User.objects.get(username='second_admin')
+        self.assertTrue(created.is_staff)
+        self.assertFalse(created.is_superuser)
 
     def test_admin_activates_deactivates_and_deletes_employee(self):
         self.client.force_authenticate(user=self.admin)
@@ -157,10 +185,10 @@ class StaffUserAdminTests(TestCase):
         self.assertEqual(deleted.status_code, 204)
         self.assertFalse(User.objects.filter(pk=self.employee.id).exists())
 
-    def test_admin_cannot_delete_or_deactivate_admin_account(self):
+    def test_secondary_admin_cannot_manage_other_admins(self):
         roles = User.objects.ensure_default_roles()
         other_admin = User.objects.create_user(
-            username='other_admin', password='pass12345', role=roles['ADMIN']
+            username='other_admin', password='pass12345', role=roles['ADMIN'], is_staff=True
         )
         self.client.force_authenticate(user=self.admin)
         bad_off = self.client.patch(
@@ -168,9 +196,34 @@ class StaffUserAdminTests(TestCase):
             {'is_active': False},
             format='json',
         )
-        self.assertEqual(bad_off.status_code, 400)
+        self.assertEqual(bad_off.status_code, 403)
         bad_del = self.client.delete(f'/api/users/{other_admin.id}/')
-        self.assertEqual(bad_del.status_code, 400)
+        self.assertEqual(bad_del.status_code, 403)
+
+    def test_main_admin_can_deactivate_and_delete_secondary_admin(self):
+        roles = User.objects.ensure_default_roles()
+        other_admin = User.objects.create_user(
+            username='other_admin2', password='pass12345', role=roles['ADMIN'], is_staff=True
+        )
+        self.client.force_authenticate(user=self.main_admin)
+        off = self.client.patch(
+            f'/api/users/{other_admin.id}/',
+            {'is_active': False},
+            format='json',
+        )
+        self.assertEqual(off.status_code, 200)
+        self.assertFalse(off.data['is_active'])
+        deleted = self.client.delete(f'/api/users/{other_admin.id}/')
+        self.assertEqual(deleted.status_code, 204)
+
+    def test_nobody_can_manage_main_admin_via_api(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.patch(
+            f'/api/users/{self.main_admin.id}/',
+            {'is_active': False},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 400)
 
     def test_admin_cannot_patch_own_account_via_staff_api(self):
         self.client.force_authenticate(user=self.admin)
@@ -180,3 +233,55 @@ class StaffUserAdminTests(TestCase):
             format='json',
         )
         self.assertEqual(res.status_code, 400)
+
+    def test_profile_reports_main_admin_flag(self):
+        self.client.force_authenticate(user=self.main_admin)
+        res = self.client.get('/api/auth/profile/')
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data['is_main_admin'])
+        self.client.force_authenticate(user=self.admin)
+        res2 = self.client.get('/api/auth/profile/')
+        self.assertFalse(res2.data['is_main_admin'])
+
+    def test_admin_without_superuser_claims_main_when_none_exists(self):
+        # Remove the only superuser — remaining ADMIN should claim main seat.
+        self.main_admin.is_superuser = False
+        self.main_admin.save(update_fields=['is_superuser'])
+        self.client.force_authenticate(user=self.admin)
+        profile = self.client.get('/api/auth/profile/')
+        self.assertEqual(profile.status_code, 200)
+        self.assertTrue(profile.data['is_main_admin'])
+        self.admin.refresh_from_db()
+        self.assertTrue(self.admin.is_superuser)
+        created = self.client.post(
+            '/api/users/',
+            {'username': 'claimed_admin', 'password': 'pass12345', 'role': 'ADMIN'},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertFalse(created.data['is_main_admin'])
+
+    def test_staff_patch_does_not_claim_main_admin_seat(self):
+        """Editing staff roles must not promote the actor when no superuser exists."""
+        self.main_admin.is_superuser = False
+        self.main_admin.save(update_fields=['is_superuser'])
+        self.client.force_authenticate(user=self.admin)
+        patch = self.client.patch(
+            f'/api/users/{self.employee.id}/',
+            {'role': 'SUPERVISOR'},
+            format='json',
+        )
+        self.assertEqual(patch.status_code, 200)
+        self.assertEqual(patch.data['role'], 'SUPERVISOR')
+        self.admin.refresh_from_db()
+        self.assertFalse(self.admin.is_superuser)
+
+        # Promoting another user to Admin still requires an existing main admin.
+        promote = self.client.patch(
+            f'/api/users/{self.employee.id}/',
+            {'role': 'ADMIN'},
+            format='json',
+        )
+        self.assertEqual(promote.status_code, 400)
+        self.admin.refresh_from_db()
+        self.assertFalse(self.admin.is_superuser)

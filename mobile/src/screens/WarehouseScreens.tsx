@@ -5,6 +5,7 @@ import { warehouseApi, inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { RackIcon } from '../components/icons';
+import { PageHeader } from '../components/PageHeader';
 import {
   Badge,
   Button,
@@ -12,7 +13,6 @@ import {
   ErrorState,
   FormActions,
   Input,
-  LoadingState,
   ManageActionBar,
   Muted,
   Screen,
@@ -23,6 +23,8 @@ import {
   Subtitle,
   TextAction,
 } from '../components/ui';
+import { DetailSkeleton, MapSkeleton } from '../components/Skeleton';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
 import { canAccess } from '../utils/roles';
@@ -236,12 +238,14 @@ export function WarehouseListScreen({ navigation }: any) {
   const [racks, setRacks] = useState<any[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<number | null>(null);
   const [rackQuery, setRackQuery] = useState('');
+  const debouncedRackQuery = useDebouncedValue(rackQuery, 160);
   const rackQueryRef = useRef(rackQuery);
   rackQueryRef.current = rackQuery;
   const selectedWhRef = useRef(selectedWarehouse);
   selectedWhRef.current = selectedWarehouse;
   const loadSeq = useRef(0);
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [showCreateRack, setShowCreateRack] = useState(false);
   const [showWhForm, setShowWhForm] = useState(false);
@@ -255,12 +259,13 @@ export function WarehouseListScreen({ navigation }: any) {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(
-    async (q?: string, warehouseId?: number | null) => {
+    async (q?: string, warehouseId?: number | null, soft = false) => {
       const seq = ++loadSeq.current;
+      if (soft) setSearching(true);
       try {
         const params: any = {};
         if (canManage) params.include_inactive = '1';
-        const query = (q ?? rackQueryRef.current).trim();
+        const query = (q ?? debouncedRackQuery).trim();
         const whFilter = warehouseId !== undefined ? warehouseId : selectedWhRef.current;
         const [wh, rackRes] = await Promise.all([
           warehouseApi.warehouses(params),
@@ -288,20 +293,24 @@ export function WarehouseListScreen({ navigation }: any) {
         if (seq !== loadSeq.current) return;
         setError(getErrorMessage(e));
       } finally {
-        if (seq === loadSeq.current) setLoading(false);
+        if (seq === loadSeq.current) {
+          setLoading(false);
+          setSearching(false);
+        }
       }
     },
-    [canManage]
+    [canManage, debouncedRackQuery]
   );
 
   useFocusEffect(
     useCallback(() => {
-      load();
-    }, [load])
+      void load(debouncedRackQuery, undefined, warehouses.length > 0 || racks.length > 0);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [debouncedRackQuery, canManage])
   );
 
   const filteredRacks =
-    selectedWarehouse && !rackQuery.trim()
+    selectedWarehouse && !debouncedRackQuery.trim()
       ? racks.filter((r) => r.warehouse === selectedWarehouse || r.warehouse_id === selectedWarehouse)
       : racks;
 
@@ -491,27 +500,24 @@ export function WarehouseListScreen({ navigation }: any) {
     ]);
   };
 
-  if (loading && !warehouses.length && !racks.length) return <LoadingState />;
+  if (loading && !warehouses.length && !racks.length) return <MapSkeleton />;
   if (error && !racks.length && !warehouses.length) return <ErrorState message={error} onRetry={() => load()} />;
 
   const header = (
     <View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <RackIcon size={22} color={colors.primaryDark} />
-        <Muted>Search racks, open maps, and manage stock placement.</Muted>
-      </View>
+      <PageHeader
+        title="Floors"
+        safeTop
+        right={<RackIcon size={22} color={colors.primaryDark} />}
+      />
 
       <SearchInput
         placeholder="Search racks..."
         value={rackQuery}
         onChangeText={setRackQuery}
-        onSubmitEditing={() => load(rackQuery)}
-        onClear={() => {
-          setRackQuery('');
-          load('');
-        }}
+        searching={searching}
+        onClear={() => setRackQuery('')}
       />
-      <Button label="Search" variant="secondary" onPress={() => load(rackQuery)} />
 
       <Card>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -606,10 +612,35 @@ export function WarehouseListScreen({ navigation }: any) {
 
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
         <View style={{ flex: 1 }}>
-          <Button label="Allocate" onPress={() => navigation.navigate('Allocate')} />
+          <Button
+            label="Allocate"
+            onPress={() =>
+              navigation.navigate({
+                name: 'Allocate',
+                params: { positionId: null, positionLabel: null, resetKey: Date.now() },
+                merge: false,
+              })
+            }
+          />
         </View>
         <View style={{ flex: 1 }}>
-          <Button label="Transfer" variant="secondary" onPress={() => navigation.navigate('Transfer')} />
+          <Button
+            label="Transfer"
+            variant="secondary"
+            onPress={() =>
+              navigation.navigate({
+                name: 'Transfer',
+                params: {
+                  fromPositionId: null,
+                  toPositionId: null,
+                  batchId: null,
+                  unitId: null,
+                  resetKey: Date.now(),
+                },
+                merge: false,
+              })
+            }
+          />
         </View>
       </View>
 
@@ -768,7 +799,7 @@ export function RackDetailScreen({ route, navigation }: any) {
   }, [rack?.code, navigation]);
 
   if (!id) return <ErrorState message="Missing rack id" />;
-  if (loading) return <LoadingState />;
+  if (loading) return <DetailSkeleton />;
   if (error || !rack) return <ErrorState message={error || 'Not found'} onRetry={load} />;
 
   return (
@@ -790,14 +821,37 @@ export function RackDetailScreen({ route, navigation }: any) {
           <Subtitle>Inventory in rack</Subtitle>
           {inventory.length === 0 ? <Muted>Empty</Muted> : null}
           {inventory.map((a) => (
-            <Text key={a.id} style={{ marginBottom: 6 }}>
-              {a.batch_code
-                ? `Batch ${a.batch_code}`
-                : a.unit_code
-                  ? `Unit ${a.unit_code}`
-                  : 'Item'}{' '}
-              ({a.item_name}) @ {a.shelf}/{a.position_code} qty {a.quantity}
-            </Text>
+            <Pressable
+              key={a.id}
+              onPress={() =>
+                navigation.navigate('AllocationDetail', {
+                  allocationId: a.id,
+                  batchId: a.batch ?? null,
+                  unitId: a.unit ?? null,
+                  quantity: a.quantity ?? null,
+                  location: `${a.warehouse}/${a.rack}/${a.shelf}/${a.position_code}`,
+                  warehouseCode: a.warehouse,
+                  rackId: id,
+                  rackCode: a.rack,
+                  shelfCode: a.shelf,
+                  positionCode: a.position_code,
+                  positionId: a.position,
+                })
+              }
+              style={{ marginBottom: 10, paddingVertical: 4 }}
+            >
+              <Text style={{ fontWeight: '700', color: colors.navy }}>
+                {a.batch_code
+                  ? `Batch ${a.batch_code}`
+                  : a.unit_code
+                    ? `Unit ${a.unit_code}`
+                    : 'Item'}{' '}
+                ({a.item_name})
+              </Text>
+              <Muted>
+                {a.shelf}/{a.position_code} · qty {a.quantity} · tap for history
+              </Muted>
+            </Pressable>
           ))}
         </Card>
       </ScrollView>
@@ -812,6 +866,7 @@ export function AllocateScreen({ route }: any) {
   const [units, setUnits] = useState<any[]>([]);
   const [mode, setMode] = useState<'batch' | 'unit'>('batch');
   const [stockQ, setStockQ] = useState('');
+  const debouncedStockQ = useDebouncedValue(stockQ, 160);
   const stockQRef = useRef(stockQ);
   stockQRef.current = stockQ;
   const [batchId, setBatchId] = useState<number | null>(null);
@@ -822,28 +877,36 @@ export function AllocateScreen({ route }: any) {
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
   const appliedParams = useRef('');
 
   useFocusEffect(
     useCallback(() => {
       const p = route?.params || {};
-      const key = `${p.positionId ?? ''}|${p.positionLabel ?? ''}`;
-      if (key !== appliedParams.current && (p.positionId != null || p.positionLabel)) {
+      const key = `${p.positionId ?? ''}|${p.positionLabel ?? ''}|${p.resetKey ?? ''}`;
+      if (key !== appliedParams.current) {
         appliedParams.current = key;
-        if (p.positionId != null) setPositionId(p.positionId);
-        if (p.positionLabel) setPositionLabel(p.positionLabel);
+        if (p.positionId != null || p.positionLabel) {
+          setPositionId(p.positionId ?? null);
+          setPositionLabel(p.positionLabel ?? null);
+        } else {
+          // Fresh entry (e.g. Warehouse → Allocate) must not keep a prior map cell.
+          setPositionId(null);
+          setPositionLabel(null);
+        }
       }
       setMsg('');
       setError('');
-    }, [route?.params?.positionId, route?.params?.positionLabel])
+    }, [route?.params?.positionId, route?.params?.positionLabel, route?.params?.resetKey])
   );
 
   const loadPickers = useCallback(async (opts?: { stockQ?: string }) => {
-    const sq = opts?.stockQ ?? stockQRef.current;
+    const sq = opts?.stockQ ?? debouncedStockQ;
+    setSearching(true);
     try {
       const [loc, inv] = await Promise.all([
         warehouseApi.locations(),
-        inventoryApi.list({ q: sq || undefined }),
+        inventoryApi.list({ q: sq.trim() || undefined }),
       ]);
       setLocations(loc.data || []);
       // Allocate only QA-passed stock that is still available to put away.
@@ -859,8 +922,10 @@ export function AllocateScreen({ route }: any) {
       );
     } catch (e) {
       setError(getErrorMessage(e));
+    } finally {
+      setSearching(false);
     }
-  }, []);
+  }, [debouncedStockQ]);
 
   useEffect(() => {
     loadPickers();
@@ -916,13 +981,9 @@ export function AllocateScreen({ route }: any) {
             placeholder={mode === 'batch' ? 'Search batch / item...' : 'Search unit / item...'}
             value={stockQ}
             onChangeText={setStockQ}
-            onSubmitEditing={() => loadPickers()}
-            onClear={() => {
-              setStockQ('');
-              loadPickers({ stockQ: '' });
-            }}
+            searching={searching}
+            onClear={() => setStockQ('')}
           />
-          <Button label="Search stock" variant="secondary" onPress={() => loadPickers()} />
           <Muted>
             {mode === 'batch' ? `${batches.length} batches` : `${units.length} units`} · scroll inside box
           </Muted>
@@ -1041,31 +1102,43 @@ export function TransferScreen({ route }: any) {
   const [batches, setBatches] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
   const [stockQ, setStockQ] = useState('');
+  const debouncedStockQ = useDebouncedValue(stockQ, 160);
   const stockQRef = useRef(stockQ);
   stockQRef.current = stockQ;
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
   const appliedParams = useRef('');
 
   useFocusEffect(
     useCallback(() => {
       const p = route?.params || {};
-      const key = `${p.fromPositionId ?? ''}|${p.toPositionId ?? ''}|${p.batchId ?? ''}|${p.unitId ?? ''}`;
-      const hasUseful =
-        p.fromPositionId != null || p.toPositionId != null || p.batchId != null || p.unitId != null;
-      if (hasUseful && key !== appliedParams.current) {
-        appliedParams.current = key;
-        if (p.fromPositionId != null) setFromId(p.fromPositionId);
-        if (p.toPositionId != null) setToId(p.toPositionId);
-        if (p.batchId != null) {
-          setBatchId(p.batchId);
-          setUnitId(null);
-          setQty('');
-        }
-        if (p.unitId != null) {
-          setUnitId(p.unitId);
-          setBatchId(null);
-          setQty('1');
-        }
+      const key = `${p.fromPositionId ?? ''}|${p.toPositionId ?? ''}|${p.batchId ?? ''}|${p.unitId ?? ''}|${p.resetKey ?? ''}`;
+      if (key === appliedParams.current) {
+        setMsg('');
+        setError('');
+        return;
+      }
+      appliedParams.current = key;
+
+      const hasPreset =
+        p.fromPositionId != null ||
+        p.toPositionId != null ||
+        p.batchId != null ||
+        p.unitId != null;
+
+      if (hasPreset) {
+        // Apply full snapshot so omitted fields clear (no leftover batch/unit from last trip).
+        setFromId(p.fromPositionId ?? null);
+        setToId(p.toPositionId ?? null);
+        setBatchId(p.batchId ?? null);
+        setUnitId(p.unitId ?? null);
+        setQty(p.unitId != null ? '1' : '');
+      } else {
+        setFromId(null);
+        setToId(null);
+        setBatchId(null);
+        setUnitId(null);
+        setQty('');
       }
       setMsg('');
       setError('');
@@ -1074,23 +1147,27 @@ export function TransferScreen({ route }: any) {
       route?.params?.toPositionId,
       route?.params?.batchId,
       route?.params?.unitId,
+      route?.params?.resetKey,
     ])
   );
 
   const loadPickers = useCallback(async (opts?: { stockQ?: string }) => {
-    const sq = opts?.stockQ ?? stockQRef.current;
+    const sq = opts?.stockQ ?? debouncedStockQ;
+    setSearching(true);
     try {
       const [loc, inv] = await Promise.all([
         warehouseApi.locations(),
-        inventoryApi.list({ q: sq || undefined }),
+        inventoryApi.list({ q: sq.trim() || undefined }),
       ]);
       setLocations(loc.data || []);
       setBatches(inv.data.batches || []);
       setUnits(inv.data.units || []);
     } catch (e) {
       setError(getErrorMessage(e));
+    } finally {
+      setSearching(false);
     }
-  }, []);
+  }, [debouncedStockQ]);
 
   useEffect(() => {
     loadPickers();
@@ -1125,13 +1202,9 @@ export function TransferScreen({ route }: any) {
             placeholder="Search batch / unit..."
             value={stockQ}
             onChangeText={setStockQ}
-            onSubmitEditing={() => loadPickers()}
-            onClear={() => {
-              setStockQ('');
-              loadPickers({ stockQ: '' });
-            }}
+            searching={searching}
+            onClear={() => setStockQ('')}
           />
-          <Button label="Search stock" variant="secondary" onPress={() => loadPickers()} />
           <Muted>Batches</Muted>
           <SelectList maxHeight={160} count={batches.length} emptyLabel="No batches found">
             {batches.slice(0, 40).map((b) => (

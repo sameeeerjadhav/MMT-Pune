@@ -4,14 +4,18 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import { Button, Input, Muted, Title } from '../components/ui';
+import { Button, FieldLabel, Input, Muted, Title } from '../components/ui';
+import { BrandMark } from '../components/BrandMark';
+import { EyeIcon, EyeOffIcon } from '../components/icons';
 import { getErrorMessage, SHOW_DEMO_TOOLS } from '../api/client';
-import { colors, radius, shadow } from '../theme/tokens';
+import { colors, fonts, radius, shadow, spacing } from '../theme/tokens';
 import { roleBlurb, roleLabel } from '../utils/roles';
 
 const DEMO_USERS = [
@@ -25,6 +29,7 @@ export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -61,22 +66,38 @@ export default function LoginScreen() {
               paddingBottom: 28,
             }}
           >
-            <Text style={{ color: colors.primarySoft, fontWeight: '700', letterSpacing: 1.2, fontSize: 12 }}>
-              AIRPORT EQUIPMENT
+            <BrandMark size="lg" style={{ marginBottom: 14 }} />
+            <Text
+              style={{
+                color: colors.primarySoft,
+                fontFamily: fonts.uiSemi,
+                letterSpacing: 1.2,
+                fontSize: 12,
+              }}
+            >
+              ALSTEF GROUP
             </Text>
             <Text
               style={{
                 color: '#fff',
                 fontSize: 34,
-                fontWeight: '800',
+                fontFamily: fonts.display,
                 marginTop: 10,
                 letterSpacing: -0.6,
               }}
             >
               Warehouse
             </Text>
-            <Text style={{ color: 'rgba(255,255,255,0.72)', marginTop: 8, lineHeight: 22, fontSize: 15 }}>
-              Scan, put away, transfer, and withdraw inventory with FIFO controls.
+            <Text
+              style={{
+                color: 'rgba(255,255,255,0.72)',
+                marginTop: 8,
+                lineHeight: 22,
+                fontSize: 15,
+                fontFamily: fonts.ui,
+              }}
+            >
+              Scan, put away, transfer, and withdraw — older stock is used first.
             </Text>
           </View>
 
@@ -92,24 +113,48 @@ export default function LoginScreen() {
             }}
           >
             <Title>Sign in</Title>
-            <Muted>Use your warehouse account. Demo roles below for walkthroughs.</Muted>
+            <Muted>Use your warehouse account.</Muted>
 
             <View style={{ marginTop: 20 }}>
               <Input
                 autoCapitalize="none"
+                autoCorrect={false}
                 placeholder="Username"
                 value={username}
                 onChangeText={setUsername}
                 returnKeyType="next"
               />
-              <Input
-                secureTextEntry
-                placeholder="Password"
-                value={password}
-                onChangeText={setPassword}
-                returnKeyType="go"
-                onSubmitEditing={onSubmit}
-              />
+
+              <View style={{ marginBottom: spacing.sm }}>
+                <FieldLabel>Password</FieldLabel>
+                <View style={styles.passwordWrap}>
+                  <TextInput
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="Password"
+                    placeholderTextColor={colors.muted}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="go"
+                    onSubmitEditing={onSubmit}
+                    style={styles.passwordInput}
+                  />
+                  <Pressable
+                    onPress={() => setShowPassword((v) => !v)}
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.eyeBtn, { opacity: pressed ? 0.65 : 1 }]}
+                  >
+                    {showPassword ? (
+                      <EyeIcon size={20} color={colors.muted} />
+                    ) : (
+                      <EyeOffIcon size={20} color={colors.muted} />
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+
               {error ? <Text style={{ color: colors.danger, marginBottom: 8 }}>{error}</Text> : null}
               <Button label="Continue" onPress={onSubmit} loading={loading} />
             </View>
@@ -122,7 +167,7 @@ export default function LoginScreen() {
                     marginBottom: 10,
                     color: colors.muted,
                     fontSize: 12,
-                    fontWeight: '700',
+                    fontFamily: fonts.uiSemi,
                     letterSpacing: 0.8,
                     textTransform: 'uppercase',
                   }}
@@ -147,8 +192,18 @@ export default function LoginScreen() {
                       borderColor: username === u.username ? colors.primary : colors.borderSoft,
                     })}
                   >
-                    <Text style={{ fontWeight: '800', color: colors.navy }}>{roleLabel(u.role)}</Text>
-                    <Text style={{ color: colors.muted, marginTop: 4, fontSize: 13, lineHeight: 18 }}>
+                    <Text style={{ fontFamily: fonts.uiBold, color: colors.navy }}>
+                      {roleLabel(u.role)}
+                    </Text>
+                    <Text
+                      style={{
+                        color: colors.muted,
+                        marginTop: 4,
+                        fontSize: 13,
+                        lineHeight: 18,
+                        fontFamily: fonts.ui,
+                      }}
+                    >
                       {u.username} · {roleBlurb(u.role)}
                     </Text>
                   </Pressable>
@@ -161,3 +216,31 @@ export default function LoginScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  passwordWrap: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  passwordInput: {
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 14,
+    paddingRight: 48,
+    color: colors.text,
+    fontSize: 16,
+    fontFamily: fonts.ui,
+  },
+  eyeBtn: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    bottom: 0,
+    width: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

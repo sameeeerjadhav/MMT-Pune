@@ -58,11 +58,11 @@ export function roleLabel(role: RoleCode | undefined | null): string {
 export function roleBlurb(role: RoleCode | undefined | null): string {
   switch (role) {
     case 'ADMIN':
-      return 'Full control: create supervisors/employees, floors, racks, GRN, reports, and FIFO overrides.';
+      return 'Admins manage supervisors/employees, floors, racks, GRN, and reports. Only the main admin can add or remove other admins.';
     case 'SUPERVISOR':
-      return 'Floor lead: floor grids, master data, GRN import, reports, and FIFO overrides.';
+      return 'Floor lead: floor grids, master data, GRN import, reports, and older-stock overrides.';
     case 'WAREHOUSE_EMPLOYEE':
-      return 'Floor ops: scan, allocate, transfer, withdraw. No master-data edits or FIFO override.';
+      return 'Floor ops: scan, allocate, transfer, withdraw. No master-data edits or older-stock override.';
     default:
       return 'Signed in.';
   }
@@ -97,9 +97,10 @@ export function primaryTabsForRole(role: RoleCode | undefined | null): string[] 
     return ['Dashboard', 'Inventory', 'Scanner', 'Warehouse', 'More'];
   }
   if (role === 'SUPERVISOR') {
-    return ['Dashboard', 'GRN', 'Scanner', 'Warehouse', 'More'];
+    // Stock tab so supervisors can filter/sort inventory on the floor.
+    return ['Dashboard', 'Inventory', 'Scanner', 'GRN', 'More'];
   }
-  // Employee default
+  // Employee default — Stock includes search/filter/sort for floor ops.
   return ['Dashboard', 'Withdrawal', 'Scanner', 'Inventory', 'More'];
 }
 
@@ -123,7 +124,7 @@ export function moreLinksForRole(role: RoleCode | undefined | null): MoreLink[] 
     {
       key: 'withdraw',
       title: 'Withdrawal',
-      subtitle: 'Shipment or assembly with FIFO checks',
+      subtitle: 'Shipment or assembly with older-stock checks',
       tab: 'Withdrawal',
       module: 'withdrawal',
     },
@@ -151,7 +152,7 @@ export function moreLinksForRole(role: RoleCode | undefined | null): MoreLink[] 
     {
       key: 'reports',
       title: 'Reports',
-      subtitle: 'Stock, occupancy, FIFO, withdrawals',
+      subtitle: 'Stock, occupancy, age order, withdrawals',
       tab: 'Reports',
       module: 'reports',
     },
