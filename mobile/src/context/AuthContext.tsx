@@ -33,21 +33,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+    const BOOT_MS = 12000;
+
+    const boot = (async () => {
       try {
-        const token = await storage.getItem('accessToken');
+        const token = await Promise.race([
+          storage.getItem('accessToken'),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+        ]);
+        if (cancelled) return;
         if (token) {
           const { data } = await authApi.profile();
-          setUser(data);
+          if (!cancelled) setUser(data);
         }
       } catch {
         await storage.deleteItem('accessToken');
         await storage.deleteItem('refreshToken');
-        setUser(null);
+        if (!cancelled) setUser(null);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+
+    // Never leave Expo Go on a forever spinner if SecureStore/API hangs.
+    const failsafe = setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, BOOT_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(failsafe);
+      void boot;
+    };
   }, []);
 
   const value = useMemo<AuthContextValue>(

@@ -28,7 +28,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
   const [purpose, setPurpose] = useState<'SHIPMENT' | 'ASSEMBLY'>('SHIPMENT');
   const [batchId, setBatchId] = useState(paramBatchId);
   const [unitId, setUnitId] = useState(paramUnitId);
-  const [quantity, setQuantity] = useState('5');
+  const [quantity, setQuantity] = useState('');
   const [overrideReason, setOverrideReason] = useState('');
   const [validation, setValidation] = useState<any>(null);
   const [error, setError] = useState('');
@@ -101,7 +101,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
       if (resetFormKey != null) {
         setBatchId('');
         setUnitId('');
-        setQuantity('5');
+        setQuantity('');
         setOverrideReason('');
         setValidation(null);
         setError('');
@@ -113,12 +113,26 @@ export default function WithdrawalScreen({ route, navigation }: any) {
     if (paramBatchId) {
       setBatchId(paramBatchId);
       setUnitId('');
-      setQuantity('5');
-      void validate(paramBatchId, '', '5');
+      setQuantity('');
+      setValidation(null);
+      setError('');
+      // Prefill qty from batch available so scan/detail deep-links are not stuck on a hard-coded 5.
+      void inventoryApi
+        .batch(Number(paramBatchId))
+        .then(({ data }) => {
+          const avail = data?.available_qty;
+          if (avail != null && avail !== '') {
+            const q = String(avail);
+            setQuantity(q);
+            void validate(paramBatchId, '', q);
+          }
+        })
+        .catch((e) => setError(getErrorMessage(e)));
       return;
     }
     setUnitId(paramUnitId);
     setBatchId('');
+    setQuantity('');
     void validate('', paramUnitId, '1');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when route params change
   }, [paramBatchId, paramUnitId, resetFormKey]);

@@ -134,3 +134,49 @@ class StaffUserAdminTests(TestCase):
             format='json',
         )
         self.assertEqual(res.status_code, 400)
+
+    def test_admin_activates_deactivates_and_deletes_employee(self):
+        self.client.force_authenticate(user=self.admin)
+        off = self.client.patch(
+            f'/api/users/{self.employee.id}/',
+            {'is_active': False},
+            format='json',
+        )
+        self.assertEqual(off.status_code, 200)
+        self.assertFalse(off.data['is_active'])
+
+        on = self.client.patch(
+            f'/api/users/{self.employee.id}/',
+            {'is_active': True},
+            format='json',
+        )
+        self.assertEqual(on.status_code, 200)
+        self.assertTrue(on.data['is_active'])
+
+        deleted = self.client.delete(f'/api/users/{self.employee.id}/')
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(User.objects.filter(pk=self.employee.id).exists())
+
+    def test_admin_cannot_delete_or_deactivate_admin_account(self):
+        roles = User.objects.ensure_default_roles()
+        other_admin = User.objects.create_user(
+            username='other_admin', password='pass12345', role=roles['ADMIN']
+        )
+        self.client.force_authenticate(user=self.admin)
+        bad_off = self.client.patch(
+            f'/api/users/{other_admin.id}/',
+            {'is_active': False},
+            format='json',
+        )
+        self.assertEqual(bad_off.status_code, 400)
+        bad_del = self.client.delete(f'/api/users/{other_admin.id}/')
+        self.assertEqual(bad_del.status_code, 400)
+
+    def test_admin_cannot_patch_own_account_via_staff_api(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.patch(
+            f'/api/users/{self.admin.id}/',
+            {'first_name': 'Nope'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 400)

@@ -224,6 +224,18 @@ class RackDetailView(generics.RetrieveUpdateDestroyAPIView):
             return [IsSupervisorOrAdmin()]
         return super().get_permissions()
 
+    def perform_update(self, serializer):
+        was_active = serializer.instance.is_active
+        rack = serializer.save()
+        # Free the floor bay when a rack is deactivated so another rack can be placed.
+        if was_active and not rack.is_active and (
+            rack.row_index is not None or rack.column_index is not None or rack.floor_id
+        ):
+            rack.row_index = None
+            rack.column_index = None
+            rack.floor = None
+            rack.save(update_fields=['row_index', 'column_index', 'floor', 'updated_at'])
+
     def perform_destroy(self, instance):
         _safe_delete(instance, f'rack {instance.code}')
 

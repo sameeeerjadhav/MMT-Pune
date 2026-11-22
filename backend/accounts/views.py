@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.db.models import Q
+from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status
 from rest_framework.response import Response
@@ -20,6 +21,8 @@ from audit.models import AuditLog
 from config.exceptions import ApiError
 
 User = get_user_model()
+
+STAFF_ROLE_CODES = (Role.Code.SUPERVISOR, Role.Code.WAREHOUSE_EMPLOYEE)
 
 
 class LoginView(APIView):
@@ -78,6 +81,24 @@ class RefreshView(TokenRefreshView):
     permission_classes = [permissions.AllowAny]
 
 
+def _get_manageable_staff(pk) -> User:
+    """Load a supervisor/employee for admin management (never Admin accounts)."""
+    user = get_object_or_404(User.objects.select_related('role'), pk=pk)
+    if user.role_code == Role.Code.ADMIN or user.is_superuser:
+        raise ApiError(
+            'VALIDATION_ERROR',
+            'Admin accounts cannot be managed from this API.',
+            status_code=400,
+        )
+    if user.role_code not in STAFF_ROLE_CODES:
+        raise ApiError(
+            'VALIDATION_ERROR',
+            'Only supervisors and warehouse employees can be managed here.',
+            status_code=400,
+        )
+    return user
+
+
 class StaffUserListCreateView(APIView):
     """Admin: list staff and create supervisors / warehouse employees."""
 
@@ -92,8 +113,16 @@ class StaffUserListCreateView(APIView):
             'true',
             'yes',
         )
+        include_admins = request.query_params.get('include_admins', '').lower() in (
+            '1',
+            'true',
+            'yes',
+        )
         if role:
             qs = qs.filter(role__code=role)
+        elif not include_admins:
+            # Default management list: supervisors + employees only.
+            qs = qs.filter(role__code__in=STAFF_ROLE_CODES)
         if q:
             qs = qs.filter(
                 Q(username__icontains=q)
@@ -121,33 +150,25 @@ class StaffUserListCreateView(APIView):
 
 
 class StaffUserDetailView(APIView):
-    """Admin: update / deactivate supervisors and employees."""
+    """Admin: update / activate / deactivate / delete supervisors and employees."""
 
     permission_classes = [IsAdmin]
 
     def get(self, request, pk):
-        user = get_object_or_404(User.objects.select_related('role'), pk=pk)
+        user = _get_manageable_staff(pk)
         return Response(UserSerializer(user).data)
 
     def patch(self, request, pk):
-        user = get_object_or_404(User.objects.select_related('role'), pk=pk)
-        if user.id == request.user.id and request.data.get('is_active') is False:
-            raise ApiError('VALIDATION_ERROR', 'You cannot deactivate your own account')
-        if user.role_code == Role.Code.ADMIN and 'role' in request.data:
+        user = _get_manageable_staff(pk)
+        # Admins are already rejected by _get_manageable_staff; keep a self-guard for safety.
+        if user.id == request.user.id:
             raise ApiError(
                 'VALIDATION_ERROR',
-                'Cannot change an Admin role from the app. Use Django admin if needed.',
+                'You cannot edit your own account from the staff users API',
             )
-        if user.role_code == Role.Code.ADMIN and request.data.get('is_active') is False:
-            raise ApiError('VALIDATION_ERROR', 'Cannot deactivate another Admin from the app')
 
         ser = StaffUserUpdateSerializer(user, data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
-
-        # Only allow role changes for non-admin targets into assignable staff roles.
-        if 'role' in ser.validated_data and user.role_code == Role.Code.ADMIN:
-            raise ApiError('VALIDATION_ERROR', 'Cannot change Admin role')
-
         user = ser.save()
         AuditLog.objects.create(
             user=request.user,
@@ -157,3 +178,27 @@ class StaffUserDetailView(APIView):
             details={'username': user.username, 'role': user.role_code, 'is_active': user.is_active},
         )
         return Response(UserSerializer(user).data)
+
+    def delete(self, request, pk):
+        user = _get_manageable_staff(pk)
+        if user.id == request.user.id:
+            raise ApiError('VALIDATION_ERROR', 'You cannot delete your own account')
+        username = user.username
+        user_id = user.id
+        try:
+            user.delete()
+        except ProtectedError:
+            raise ApiError(
+                'CONFLICT',
+                f'Cannot delete {username}: still referenced by withdrawals or transfers. '
+                'Deactivate the account instead.',
+                status_code=409,
+            )
+        AuditLog.objects.create(
+            user=request.user,
+            action='DELETE',
+            entity_type='User',
+            entity_id=user_id,
+            details={'username': username},
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)

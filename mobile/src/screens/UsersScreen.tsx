@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { usersApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -12,6 +12,7 @@ import {
   FormActions,
   Input,
   LoadingState,
+  ManageActionBar,
   Muted,
   Screen,
   SearchInput,
@@ -53,23 +54,20 @@ export default function UsersScreen() {
     is_active: true,
   });
 
-  const load = useCallback(
-    async (query?: string) => {
-      setError('');
-      try {
-        const { data } = await usersApi.list({
-          q: (query ?? qRef.current) || undefined,
-          include_inactive: '1',
-        });
-        setRows(data);
-      } catch (e) {
-        setError(getErrorMessage(e));
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
+  const load = useCallback(async (query?: string) => {
+    setError('');
+    try {
+      const { data } = await usersApi.list({
+        q: (query ?? qRef.current) || undefined,
+        include_inactive: '1',
+      });
+      setRows(data);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -98,10 +96,6 @@ export default function UsersScreen() {
   };
 
   const openEdit = (row: any) => {
-    if (row.role === 'ADMIN') {
-      setError('Admin accounts are managed outside this screen.');
-      return;
-    }
     setCreating(false);
     setEditing(row);
     setForm({
@@ -135,7 +129,7 @@ export default function UsersScreen() {
           role: form.role,
         });
       } else if (editing) {
-        const payload: any = {
+        const payload: Record<string, unknown> = {
           first_name: form.first_name.trim(),
           last_name: form.last_name.trim(),
           email: form.email.trim(),
@@ -157,15 +151,15 @@ export default function UsersScreen() {
   };
 
   const toggleActive = async (row: any) => {
-    if (row.role === 'ADMIN') {
-      setError('Cannot deactivate Admin accounts here');
-      return;
-    }
     setSaving(true);
     setError('');
     try {
-      await usersApi.update(row.id, { is_active: row.is_active === false });
-      if (editing?.id === row.id) setEditing({ ...editing, is_active: row.is_active === false });
+      const nextActive = row.is_active === false;
+      await usersApi.update(row.id, { is_active: nextActive });
+      if (editing?.id === row.id) {
+        setEditing({ ...editing, is_active: nextActive });
+        setForm((f) => ({ ...f, is_active: nextActive }));
+      }
       await load();
     } catch (e) {
       setError(getErrorMessage(e));
@@ -175,13 +169,43 @@ export default function UsersScreen() {
   };
 
   const confirmToggle = (row: any) => {
-    const next = row.is_active === false ? 'activate' : 'deactivate';
+    const activate = row.is_active === false;
     Alert.alert(
-      `${next === 'activate' ? 'Activate' : 'Deactivate'} user`,
-      `${next} ${row.username}?`,
+      activate ? 'Activate user' : 'Deactivate user',
+      activate
+        ? `Activate ${row.username}? They will be able to sign in again.`
+        : `Deactivate ${row.username}? They will not be able to sign in.`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Confirm', onPress: () => toggleActive(row) },
+      ]
+    );
+  };
+
+  const removeUser = async (row: any) => {
+    setSaving(true);
+    setError('');
+    try {
+      await usersApi.delete(row.id);
+      if (editing?.id === row.id) {
+        setEditing(null);
+        setCreating(false);
+      }
+      await load();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = (row: any) => {
+    Alert.alert(
+      'Delete user',
+      `Permanently delete ${row.username}? Prefer Deactivate if they have withdrawal history.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => removeUser(row) },
       ]
     );
   };
@@ -191,7 +215,9 @@ export default function UsersScreen() {
 
   const header = (
     <View>
-      <Muted>Create supervisors and warehouse employees. Admins stay on this account.</Muted>
+      <Muted>
+        Create, edit, activate, deactivate, or delete supervisors and warehouse employees.
+      </Muted>
       <SearchInput
         placeholder="Search users..."
         value={q}
@@ -204,7 +230,7 @@ export default function UsersScreen() {
       />
       <Button label="Search" variant="secondary" onPress={() => load(q)} />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Subtitle>Users ({rows.length})</Subtitle>
+        <Subtitle>Staff ({rows.length})</Subtitle>
         <TextAction
           label={creating && !editing ? 'Cancel' : '+ Add user'}
           onPress={() => {
@@ -262,13 +288,23 @@ export default function UsersScreen() {
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
             {ROLE_OPTIONS.map((opt) => (
               <Pressable key={opt.code} onPress={() => setForm((f) => ({ ...f, role: opt.code }))}>
-                <Badge
-                  label={opt.label}
-                  tone={form.role === opt.code ? 'primary' : 'warning'}
-                />
+                <Badge label={opt.label} tone={form.role === opt.code ? 'primary' : 'warning'} />
               </Pressable>
             ))}
           </View>
+          {editing ? (
+            <>
+              <Muted>Status</Muted>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                <Pressable onPress={() => setForm((f) => ({ ...f, is_active: true }))}>
+                  <Badge label="Active" tone={form.is_active ? 'success' : 'warning'} />
+                </Pressable>
+                <Pressable onPress={() => setForm((f) => ({ ...f, is_active: false }))}>
+                  <Badge label="Inactive" tone={!form.is_active ? 'danger' : 'warning'} />
+                </Pressable>
+              </View>
+            </>
+          ) : null}
           <FormActions
             primaryLabel="Save"
             onPrimary={save}
@@ -293,19 +329,14 @@ export default function UsersScreen() {
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={{ paddingBottom: scrollPad }}
         ListHeaderComponent={header}
+        ListEmptyComponent={
+          !loading ? <Muted>No supervisors or employees yet. Tap + Add user.</Muted> : null
+        }
         renderItem={({ item }) => {
           const active = item.is_active !== false;
-          const isAdmin = item.role === 'ADMIN';
           return (
             <Card>
-              <Pressable
-                onPress={() => openEdit(item)}
-                disabled={isAdmin}
-                style={{
-                  paddingVertical: 4,
-                  opacity: isAdmin ? 0.85 : 1,
-                }}
-              >
+              <Pressable onPress={() => openEdit(item)} style={{ paddingVertical: 4 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontWeight: '800', color: colors.navy, fontSize: 15 }}>
@@ -319,42 +350,19 @@ export default function UsersScreen() {
                   <View style={{ alignItems: 'flex-end', gap: 4 }}>
                     <Badge
                       label={roleLabel(item.role)}
-                      tone={
-                        item.role === 'ADMIN'
-                          ? 'danger'
-                          : item.role === 'SUPERVISOR'
-                            ? 'warning'
-                            : 'primary'
-                      }
+                      tone={item.role === 'SUPERVISOR' ? 'warning' : 'primary'}
                     />
                     {!active ? <Badge label="Inactive" tone="danger" /> : null}
                   </View>
                 </View>
               </Pressable>
-              {!isAdmin ? (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 10,
-                    marginTop: 8,
-                    paddingTop: 8,
-                    borderTopWidth: StyleSheet.hairlineWidth,
-                    borderTopColor: colors.borderSoft,
-                  }}
-                >
-                  <TextAction label="Edit" onPress={() => openEdit(item)} disabled={saving} />
-                  <Text style={{ color: colors.border }}>·</Text>
-                  <TextAction
-                    label={active ? 'Deactivate' : 'Activate'}
-                    tone="muted"
-                    onPress={() => confirmToggle(item)}
-                    disabled={saving}
-                  />
-                </View>
-              ) : (
-                <Muted>Admin accounts are not edited here.</Muted>
-              )}
+              <ManageActionBar
+                isActive={active}
+                disabled={saving}
+                onEdit={() => openEdit(item)}
+                onToggleActive={() => confirmToggle(item)}
+                onDelete={() => confirmDelete(item)}
+              />
             </Card>
           );
         }}

@@ -158,7 +158,7 @@ export function moreLinksForRole(role: RoleCode | undefined | null): MoreLink[] 
     {
       key: 'users',
       title: 'Users',
-      subtitle: 'Create supervisors and warehouse employees',
+      subtitle: 'Create, edit, activate, or delete supervisors & employees',
       tab: 'Users',
       module: 'manageUsers',
     },

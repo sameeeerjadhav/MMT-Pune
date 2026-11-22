@@ -5,7 +5,7 @@ from rest_framework.views import APIView
 from accounts.permissions import IsSupervisorOrAdmin
 from grn.models import GRN
 from inventory.models import InventoryBatch, InventoryUnit, StockAllocation
-from inventory.services.fifo import find_older_bulk
+from inventory.services.fifo import find_older_bulk, find_older_unit
 from reports.pdf import build_withdrawals_report_pdf
 from withdrawals.models import Withdrawal
 
@@ -129,17 +129,40 @@ class FIFOReportView(APIView):
 
     def get(self, request):
         alerts = []
-        for batch in InventoryBatch.objects.filter(available_qty__gt=0).select_related('item'):
+        for batch in (
+            InventoryBatch.objects.filter(available_qty__gt=0, testing_status='PASSED')
+            .select_related('item')
+            .order_by('-received_at', '-id')
+        ):
             older = find_older_bulk(batch.item_id, batch.received_at, batch.id)
             if older:
                 alerts.append(
                     {
+                        'kind': 'BATCH',
                         'item': batch.item.name,
                         'newer_batch': batch.batch_code,
                         'newer_date': batch.received_at,
                         'older_batch': older.batch_code,
                         'older_date': older.received_at,
                         'older_available': str(older.available_qty),
+                    }
+                )
+        for unit in (
+            InventoryUnit.objects.filter(status='AVAILABLE', testing_status='PASSED')
+            .select_related('item')
+            .order_by('-received_at', '-id')
+        ):
+            older = find_older_unit(unit.item_id, unit.received_at, unit.id)
+            if older:
+                alerts.append(
+                    {
+                        'kind': 'UNIT',
+                        'item': unit.item.name,
+                        'newer_batch': unit.unit_code,
+                        'newer_date': unit.received_at,
+                        'older_batch': older.unit_code,
+                        'older_date': older.received_at,
+                        'older_available': '1',
                     }
                 )
         return Response(alerts)

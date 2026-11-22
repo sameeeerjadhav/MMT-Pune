@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.db import transaction
 from django.db.models import Sum
+from django.db.models.deletion import ProtectedError
 
 from barcodes.services import create_barcode
 from config.exceptions import ApiError
@@ -113,17 +114,23 @@ def place_rack_on_floor(*, floor_id, rack_id, row_index, column_index):
 
     conflict = (
         Rack.objects.select_for_update()
-        .filter(floor=floor, row_index=row_index, column_index=column_index, is_active=True)
+        .filter(floor=floor, row_index=row_index, column_index=column_index)
         .exclude(pk=rack.id)
         .first()
     )
     if conflict:
-        raise ApiError(
-            'CELL_OCCUPIED',
-            f'Cell R{row_index}-C{column_index} already has rack {conflict.code}',
-            status_code=409,
-            details={'rack_id': conflict.id, 'rack_code': conflict.code},
-        )
+        if conflict.is_active:
+            raise ApiError(
+                'CELL_OCCUPIED',
+                f'Cell R{row_index}-C{column_index} already has rack {conflict.code}',
+                status_code=409,
+                details={'rack_id': conflict.id, 'rack_code': conflict.code},
+            )
+        # Inactive racks still hold unique cell coords — clear so the bay can be reused.
+        conflict.row_index = None
+        conflict.column_index = None
+        conflict.floor = None
+        conflict.save(update_fields=['row_index', 'column_index', 'floor', 'updated_at'])
 
     rack.floor = floor
     rack.row_index = row_index
@@ -405,14 +412,15 @@ def update_rack_layout(*, rack_id, row_count: int, column_count: int):
                         f'Cannot remove {shelf.code}/{pos.code}: still has stock. Move or deallocate first.',
                         status_code=409,
                     )
-                # Transfers may PROTECT — try delete, else clear by deactivating isn't available; raise.
+                # Drop inactive allocation rows so PROTECT does not block empty-cell shrink.
+                StockAllocation.objects.filter(position=pos, is_active=False).delete()
                 try:
                     pos.delete()
-                except Exception:
+                except ProtectedError:
                     raise ApiError(
                         'CONFLICT',
-                        f'Cannot remove position {shelf.code}/{pos.code}: referenced by history. '
-                        'Leave the column count as-is or clear related records.',
+                        f'Cannot remove position {shelf.code}/{pos.code}: referenced by transfer history. '
+                        'Leave the column count as-is.',
                         status_code=409,
                     )
 
@@ -429,12 +437,14 @@ def update_rack_layout(*, rack_id, row_count: int, column_count: int):
                         f'Cannot remove shelf {shelf.code}: still has stock. Move or deallocate first.',
                         status_code=409,
                     )
+            for pos in list(shelf.positions.all()):
+                StockAllocation.objects.filter(position=pos, is_active=False).delete()
             try:
                 shelf.delete()
-            except Exception:
+            except ProtectedError:
                 raise ApiError(
                     'CONFLICT',
-                    f'Cannot remove shelf {shelf.code}: referenced by history.',
+                    f'Cannot remove shelf {shelf.code}: referenced by transfer history.',
                     status_code=409,
                 )
 
@@ -474,12 +484,21 @@ def allocate_stock(*, position_id, user, batch_id=None, unit_id=None, quantity=N
 
     if batch_id:
         batch = InventoryBatch.objects.select_for_update().get(pk=batch_id)
-        qty = Decimal(str(quantity if quantity is not None else batch.available_qty))
+        if batch.testing_status == 'FAILED':
+            raise ApiError('INELIGIBLE', 'Cannot allocate failed inventory')
+        if batch.testing_status == 'PENDING':
+            raise ApiError('INELIGIBLE', 'Cannot allocate inventory still pending testing')
+        if quantity is None or quantity == '':
+            raise ApiError(
+                'VALIDATION_ERROR',
+                'quantity is required for batch allocate (avoids moving the whole batch by mistake)',
+            )
+        qty = Decimal(str(quantity))
         if qty <= 0 or qty > batch.available_qty:
             raise ApiError('INVALID_QTY', 'Invalid allocation quantity')
 
         if allocation_type == 'ACTUAL':
-            # Full putaway to one location: replace all other active ACTUAL rows.
+            # Full putaway of remaining qty to one location: replace other active ACTUAL rows.
             # Partial putaway: keep other locations (supports split batches).
             full_putaway = qty >= batch.available_qty
             if full_putaway:
@@ -531,6 +550,16 @@ def allocate_stock(*, position_id, user, batch_id=None, unit_id=None, quantity=N
         return allocation
 
     unit = InventoryUnit.objects.select_for_update().get(pk=unit_id)
+    if unit.status != 'AVAILABLE':
+        raise ApiError(
+            'INELIGIBLE',
+            f'Cannot allocate unit with status {unit.status}',
+            status_code=400,
+        )
+    if unit.testing_status == 'FAILED':
+        raise ApiError('INELIGIBLE', 'Cannot allocate failed inventory')
+    if unit.testing_status == 'PENDING':
+        raise ApiError('INELIGIBLE', 'Cannot allocate inventory still pending testing')
     if allocation_type == 'ACTUAL':
         StockAllocation.objects.filter(
             unit=unit, allocation_type='ACTUAL', is_active=True
