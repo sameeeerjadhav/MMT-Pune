@@ -188,6 +188,7 @@ const TAB_ICONS = {
   GRN: DocIcon,
   Warehouse: RackIcon,
   Reports: ChartIcon,
+  Users: UserIcon,
   Settings: GearIcon,
   More: MenuIcon,
 } as const;
@@ -227,5 +228,6 @@ export const MORE_LINK_ICONS = {
   grn: DocIcon,
   inventory: CubeIcon,
   reports: ChartIcon,
+  users: UserIcon,
   settings: GearIcon,
 } as const;

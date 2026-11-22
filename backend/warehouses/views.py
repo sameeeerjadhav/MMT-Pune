@@ -18,6 +18,7 @@ from warehouses.serializers import (
     FloorSerializer,
     PlaceRackSerializer,
     RackCreateSerializer,
+    RackLayoutSerializer,
     RackSerializer,
     RackTransferSerializer,
     WarehouseSerializer,
@@ -31,6 +32,7 @@ from warehouses.services import (
     place_rack_on_floor,
     transfer_stock,
     update_floor_layout,
+    update_rack_layout,
 )
 
 
@@ -335,6 +337,7 @@ class RackMapView(APIView):
                 }
             )
 
+        role = getattr(request.user, 'role_code', None)
         return Response(
             {
                 'rack': {
@@ -352,10 +355,28 @@ class RackMapView(APIView):
                     'cells': total_cells,
                     'occupied': occupied_cells,
                     'empty': total_cells - occupied_cells,
+                    'row_count': len(rows),
+                    'column_count': max((len(r['cells']) for r in rows), default=0),
                 },
+                'can_edit_layout': role in ('ADMIN', 'SUPERVISOR'),
+                'viewer_role': role,
                 'rows': rows,
             }
         )
+
+
+class RackLayoutView(APIView):
+    """Resize rack map: shelves (rows) × positions (columns). Admin/Supervisor only."""
+
+    permission_classes = [IsSupervisorOrAdmin]
+
+    def patch(self, request, pk):
+        ser = RackLayoutSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        update_rack_layout(rack_id=pk, **ser.validated_data)
+        # Return fresh map payload via the same shape as RackMapView.
+        map_view = RackMapView()
+        return map_view.get(request, pk)
 
 
 class LocationListView(APIView):
@@ -376,10 +397,15 @@ class LocationListView(APIView):
         data = [
             {
                 'id': p.id,
+                'warehouse_id': p.shelf.rack.warehouse_id,
                 'warehouse': p.shelf.rack.warehouse.code,
+                'warehouse_name': p.shelf.rack.warehouse.name,
+                'rack_id': p.shelf.rack_id,
                 'rack': p.shelf.rack.code,
+                'rack_name': p.shelf.rack.name,
                 'shelf': p.shelf.code,
                 'position': p.code,
+                'cell': f'{p.shelf.code}/{p.code}',
                 'label': f'{p.shelf.rack.warehouse.code}/{p.shelf.rack.code}/{p.shelf.code}/{p.code}',
             }
             for p in positions.order_by(

@@ -13,10 +13,12 @@ export type AppModule =
   | 'createRack'
   | 'editFloorLayout'
   | 'fifoOverride'
-  | 'manageMasterData';
+  | 'manageMasterData'
+  | 'manageUsers';
 
 const ALL_STAFF: RoleCode[] = ['ADMIN', 'SUPERVISOR', 'WAREHOUSE_EMPLOYEE'];
 const LEADS: RoleCode[] = ['ADMIN', 'SUPERVISOR'];
+const ADMIN_ONLY: RoleCode[] = ['ADMIN'];
 
 const MODULE_ROLES: Record<AppModule, RoleCode[]> = {
   dashboard: ALL_STAFF,
@@ -32,6 +34,7 @@ const MODULE_ROLES: Record<AppModule, RoleCode[]> = {
   editFloorLayout: LEADS,
   fifoOverride: LEADS,
   manageMasterData: LEADS,
+  manageUsers: ADMIN_ONLY,
 };
 
 export function canAccess(role: RoleCode | undefined | null, module: AppModule): boolean {
@@ -55,7 +58,7 @@ export function roleLabel(role: RoleCode | undefined | null): string {
 export function roleBlurb(role: RoleCode | undefined | null): string {
   switch (role) {
     case 'ADMIN':
-      return 'Full control: floors, master data, rack maps, GRN import, reports, and FIFO overrides.';
+      return 'Full control: create supervisors/employees, floors, racks, GRN, reports, and FIFO overrides.';
     case 'SUPERVISOR':
       return 'Floor lead: floor grids, master data, GRN import, reports, and FIFO overrides.';
     case 'WAREHOUSE_EMPLOYEE':
@@ -74,6 +77,7 @@ export const TAB_ACCESS: Record<string, AppModule | null> = {
   GRN: 'grn',
   Warehouse: 'warehouse',
   Reports: 'reports',
+  Users: 'manageUsers',
   Settings: 'settings',
   More: null,
 };
@@ -150,6 +154,13 @@ export function moreLinksForRole(role: RoleCode | undefined | null): MoreLink[] 
       subtitle: 'Stock, occupancy, FIFO, withdrawals',
       tab: 'Reports',
       module: 'reports',
+    },
+    {
+      key: 'users',
+      title: 'Users',
+      subtitle: 'Create supervisors and warehouse employees',
+      tab: 'Users',
+      module: 'manageUsers',
     },
     {
       key: 'settings',

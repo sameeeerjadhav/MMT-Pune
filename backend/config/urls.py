@@ -5,7 +5,15 @@ from django.views.generic import RedirectView
 from django.views.static import serve
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from accounts.views import HealthView, LoginView, LogoutView, ProfileView, RefreshView
+from accounts.views import (
+    HealthView,
+    LoginView,
+    LogoutView,
+    ProfileView,
+    RefreshView,
+    StaffUserDetailView,
+    StaffUserListCreateView,
+)
 from barcodes.views import (
     BarcodeDetailView,
     BarcodeLabelImageView,
@@ -44,6 +52,7 @@ from warehouses.views import (
     LocationListView,
     RackDetailView,
     RackInventoryView,
+    RackLayoutView,
     RackListCreateView,
     RackMapView,
     TransferView,
@@ -67,6 +76,8 @@ urlpatterns = [
     path('api/auth/refresh/', RefreshView.as_view()),
     path('api/auth/logout/', LogoutView.as_view()),
     path('api/auth/profile/', ProfileView.as_view()),
+    path('api/users/', StaffUserListCreateView.as_view()),
+    path('api/users/<int:pk>/', StaffUserDetailView.as_view()),
     path('api/dashboard/', DashboardView.as_view()),
     path('api/grns/', GRNListCreateView.as_view()),
     path('api/grns/import/', GRNImportView.as_view()),
@@ -96,6 +107,7 @@ urlpatterns = [
     path('api/racks/<int:pk>/', RackDetailView.as_view()),
     path('api/racks/<int:pk>/inventory/', RackInventoryView.as_view()),
     path('api/racks/<int:pk>/map/', RackMapView.as_view()),
+    path('api/racks/<int:pk>/layout/', RackLayoutView.as_view()),
     path('api/locations/', LocationListView.as_view()),
     path('api/locations/allocate/', AllocateView.as_view()),
     path('api/locations/deallocate/', DeallocateView.as_view()),

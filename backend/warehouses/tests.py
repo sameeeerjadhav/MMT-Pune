@@ -258,6 +258,36 @@ class RackMapViewTests(TestCase):
         res = self.client.get('/api/racks/999999/map/')
         self.assertEqual(res.status_code, 404)
 
+    def test_admin_can_resize_rack_layout(self):
+        res = self.client.patch(
+            f'/api/racks/{self.rack.id}/layout/',
+            {'row_count': 3, 'column_count': 4},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['summary']['row_count'], 3)
+        self.assertEqual(res.data['summary']['column_count'], 4)
+        self.assertEqual(res.data['summary']['cells'], 12)
+        self.assertTrue(res.data['can_edit_layout'])
+
+    def test_cannot_remove_stocked_shelf(self):
+        # Only keep 1 shelf — natural order drops shelf "10" first, then would drop "2" which has stock.
+        # Cutting to 0 rows is invalid; cutting to 1 keeps shelf "2" (stocked) and removes "10".
+        ok = self.client.patch(
+            f'/api/racks/{self.rack.id}/layout/',
+            {'row_count': 1, 'column_count': 2},
+            format='json',
+        )
+        self.assertEqual(ok.status_code, 200)
+        self.assertEqual(ok.data['summary']['row_count'], 1)
+        # Trying to remove the remaining stocked shelf fails.
+        bad = self.client.patch(
+            f'/api/racks/{self.rack.id}/layout/',
+            {'row_count': 1, 'column_count': 0},
+            format='json',
+        )
+        self.assertEqual(bad.status_code, 400)
+
 
 class MasterDataCrudAndSearchTests(TestCase):
     def setUp(self):

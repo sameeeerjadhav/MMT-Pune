@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "Warehouse Inventory",
-    "slug": "warehouse-inventory",
+    "slug": "mmt-pune",
+    "owner": "sameerjadhavs-team",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -18,9 +19,11 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
-        "CAMERA",
-        "READ_MEDIA_IMAGES",
-        "READ_EXTERNAL_STORAGE"
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ],
       "predictiveBackGestureEnabled": false
     },
@@ -45,7 +48,10 @@
     ],
     "extra": {
       "apiUrl": "https://mmt.labxco.cloud/api",
-      "preferRemoteApiInDev": true
+      "preferRemoteApiInDev": true,
+      "eas": {
+        "projectId": "39dd6915-5ca0-4606-9d65-d6bd40686771"
+      }
     }
   }
 }

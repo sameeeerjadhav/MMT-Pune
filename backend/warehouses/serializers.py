@@ -35,6 +35,13 @@ class FloorLayoutSerializer(serializers.Serializer):
     column_count = serializers.IntegerField(min_value=1, max_value=50)
 
 
+class RackLayoutSerializer(serializers.Serializer):
+    """Rows = shelves, columns = positions on the rack map."""
+
+    row_count = serializers.IntegerField(min_value=1, max_value=26)
+    column_count = serializers.IntegerField(min_value=1, max_value=50)
+
+
 class PlaceRackSerializer(serializers.Serializer):
     rack_id = serializers.IntegerField()
     row_index = serializers.IntegerField(min_value=1)
