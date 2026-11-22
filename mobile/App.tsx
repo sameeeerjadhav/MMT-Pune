@@ -1,5 +1,4 @@
 import React from 'react';
-import { ActivityIndicator, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -13,7 +12,7 @@ import {
 import { Sora_600SemiBold, Sora_700Bold } from '@expo-google-fonts/sora';
 import { AuthProvider } from './src/context/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
-import { colors } from './src/theme/tokens';
+import { BootLoading } from './src/components/BootLoading';
 
 export default function App() {
   const [loaded] = useFonts({
@@ -26,18 +25,7 @@ export default function App() {
   });
 
   if (!loaded) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: colors.background,
-        }}
-      >
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
+    return <BootLoading message="Starting…" />;
   }
 
   return (

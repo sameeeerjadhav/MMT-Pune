@@ -5,7 +5,8 @@ import { grnApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { DocIcon } from '../components/icons';
-import { Button, Card, ErrorState, LoadingState, Muted, Screen, SearchInput } from '../components/ui';
+import { Button, Card, ErrorState, Muted, Screen, SearchInput } from '../components/ui';
+import { ListSkeleton } from '../components/Skeleton';
 import { PageHeader } from '../components/PageHeader';
 import { colors } from '../theme/tokens';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -18,7 +19,7 @@ export default function GRNListScreen() {
   const scrollPad = useTabScrollPadding(28);
   const canImport = canAccess(user?.role, 'grnImport');
   const [q, setQ] = useState('');
-  const debouncedQ = useDebouncedValue(q, 300);
+  const debouncedQ = useDebouncedValue(q, 160);
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -52,7 +53,7 @@ export default function GRNListScreen() {
     }, [debouncedQ])
   );
 
-  if (loading && !rows.length) return <LoadingState />;
+  if (loading && !rows.length) return <ListSkeleton rows={6} titleWidth="22%" />;
   if (error && !rows.length) return <ErrorState message={error} onRetry={() => setQ((x) => x)} />;
 
   return (

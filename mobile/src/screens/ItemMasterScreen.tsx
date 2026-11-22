@@ -11,7 +11,6 @@ import {
   ErrorState,
   FormActions,
   Input,
-  LoadingState,
   ManageActionBar,
   Muted,
   Screen,
@@ -19,6 +18,7 @@ import {
   Subtitle,
   TextAction,
 } from '../components/ui';
+import { ListSkeleton } from '../components/Skeleton';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
@@ -29,7 +29,7 @@ export default function ItemMasterScreen() {
   const canManage = canAccess(user?.role, 'manageMasterData');
   const scrollPad = useTabScrollPadding(28);
   const [q, setQ] = useState('');
-  const debouncedQ = useDebouncedValue(q, 300);
+  const debouncedQ = useDebouncedValue(q, 160);
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -186,7 +186,7 @@ export default function ItemMasterScreen() {
     ]);
   };
 
-  if (loading && !rows.length) return <LoadingState />;
+  if (loading && !rows.length) return <ListSkeleton rows={6} titleWidth="28%" />;
   if (error && !rows.length) return <ErrorState message={error} onRetry={() => load()} />;
 
   return (

@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import { FilterIcon, SearchIcon } from './icons';
+import { ListSkeleton } from './Skeleton';
 import { colors, fonts, radius, shadow, spacing } from '../theme/tokens';
 
 export function Screen({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
@@ -523,12 +524,8 @@ export function Badge({
 }
 
 export function LoadingState() {
-  return (
-    <View style={styles.center}>
-      <ActivityIndicator size="large" color={colors.primary} />
-      <Muted>Loading...</Muted>
-    </View>
-  );
+  // Prefer page-shaped skeletons over a centered spinner.
+  return <ListSkeleton rows={5} showSearch={false} titleWidth="36%" />;
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {

@@ -56,6 +56,7 @@ export function ScanIcon({ size = 24, color = colors.navy }: IconProps) {
   );
 }
 
+/** Simple outline cube — tab bar / nav (original look). */
 export function CubeIcon({ size = 24, color = colors.navy }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -65,8 +66,45 @@ export function CubeIcon({ size = 24, color = colors.navy }: IconProps) {
         strokeWidth={1.8}
         strokeLinejoin="round"
       />
-      <Path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
+      <Path
+        d="M12 12l8-4.5M12 12v9M12 12L4 7.5"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
     </Svg>
+  );
+}
+
+/**
+ * Filled isometric cube for stock list defaults (SVG only — no photo asset).
+ * Thin stroke; pale faces; transparent outside.
+ */
+export function StockCubeIcon({ size = 24, color = colors.primary }: IconProps) {
+  const stroke = Math.max(1.1, Math.min(1.5, size / 52));
+  return (
+    <Svg width={size} height={size} viewBox="0 0 48 48" fill="none">
+      <Path d="M24 6L40 15L24 24L8 15L24 6Z" fill={colors.primarySoft} stroke={color} strokeWidth={stroke} strokeLinejoin="round" />
+      <Path d="M8 15V33L24 42V24L8 15Z" fill={colors.primarySoft} stroke={color} strokeWidth={stroke} strokeLinejoin="round" />
+      <Path d="M40 15V33L24 42V24L40 15Z" fill="#D7E8F7" stroke={color} strokeWidth={stroke} strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+/** Default stock photo placeholder: large cube, no tile / shadow / background. */
+export function StockLogo({ size = 72 }: { size?: number }) {
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'transparent',
+      }}
+    >
+      <StockCubeIcon size={size} color={colors.primary} />
+    </View>
   );
 }
 
@@ -160,6 +198,24 @@ export function UserIcon({ size = 24, color = colors.navy }: IconProps) {
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Circle cx="12" cy="8" r="3.5" stroke={color} strokeWidth={1.8} />
       <Path d="M5 19c1.5-3.2 4-5 7-5s5.5 1.8 7 5" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+/** Filled person-in-circle avatar (dashboard profile control). No outer ring. */
+export function UserAvatarIcon({
+  size = 40,
+  color = '#fff',
+  backgroundColor = '#4A4A4A',
+}: IconProps & { backgroundColor?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 48 48" fill="none">
+      <Circle cx="24" cy="24" r="24" fill={backgroundColor} />
+      <Circle cx="24" cy="16.5" r="7.2" fill={color} />
+      <Path
+        d="M11 42.2c0-7.6 5.8-12.7 13-12.7s13 5.1 13 12.7c-3.4 2.4-8 3.6-13 3.6s-9.6-1.2-13-3.6z"
+        fill={color}
+      />
     </Svg>
   );
 }

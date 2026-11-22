@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BrandMark } from './BrandMark';
 import { colors, fonts, spacing } from '../theme/tokens';
 
 type PageHeaderProps = {
@@ -12,7 +13,7 @@ type PageHeaderProps = {
   style?: ViewStyle;
 };
 
-/** In-screen title block — left-aligned, brand type, no floating white bar. */
+/** In-screen title block — ALSTEF mark + title, left-aligned. */
 export function PageHeader({ title, subtitle, right, safeTop = false, style }: PageHeaderProps) {
   const insets = useSafeAreaInsets();
   return (
@@ -24,6 +25,7 @@ export function PageHeader({ title, subtitle, right, safeTop = false, style }: P
       ]}
     >
       <View style={styles.row}>
+        <BrandMark size="md" style={styles.mark} />
         <View style={styles.textCol}>
           <Text style={styles.title} numberOfLines={1}>
             {title}
@@ -48,7 +50,7 @@ type NavHeaderProps = {
   right?: React.ReactNode;
 };
 
-/** Stack navigator header — same language as PageHeader, with optional back. */
+/** Stack navigator header — ALSTEF mark on every stack page. */
 export function NavHeader({ title, subtitle, canGoBack, onBack, right }: NavHeaderProps) {
   const insets = useSafeAreaInsets();
   return (
@@ -64,12 +66,15 @@ export function NavHeader({ title, subtitle, canGoBack, onBack, right }: NavHead
             <Text style={styles.backChevron}>‹</Text>
           </Pressable>
         ) : (
-          <View style={styles.backSpacer} />
+          <BrandMark size="sm" style={styles.navMark} />
         )}
         <View style={styles.textCol}>
-          <Text style={styles.navTitle} numberOfLines={1}>
-            {title || ''}
-          </Text>
+          <View style={styles.navTitleRow}>
+            {canGoBack ? <BrandMark size="sm" style={styles.navMarkInline} /> : null}
+            <Text style={styles.navTitle} numberOfLines={1}>
+              {title || ''}
+            </Text>
+          </View>
           {subtitle ? (
             <Text style={styles.subtitle} numberOfLines={1}>
               {subtitle}
@@ -90,9 +95,12 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  mark: {
+    marginTop: 2,
   },
   textCol: { flex: 1, minWidth: 0 },
   title: {
@@ -101,7 +109,14 @@ const styles = StyleSheet.create({
     letterSpacing: -0.6,
     color: colors.navy,
   },
+  navTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
+  },
   navTitle: {
+    flex: 1,
     fontFamily: fonts.displaySemi,
     fontSize: 18,
     letterSpacing: -0.3,
@@ -114,7 +129,7 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginTop: 4,
   },
-  right: { paddingTop: 4 },
+  right: { paddingTop: 0 },
   navWrap: {
     backgroundColor: colors.background,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -127,6 +142,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     minHeight: 40,
+  },
+  navMark: {
+    marginRight: 6,
+  },
+  navMarkInline: {
+    flexShrink: 0,
   },
   backBtn: {
     width: 36,

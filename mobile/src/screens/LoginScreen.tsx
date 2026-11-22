@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { Button, FieldLabel, Input, Muted, Title } from '../components/ui';
+import { BrandMark } from '../components/BrandMark';
 import { EyeIcon, EyeOffIcon } from '../components/icons';
 import { getErrorMessage, SHOW_DEMO_TOOLS } from '../api/client';
 import { colors, fonts, radius, shadow, spacing } from '../theme/tokens';
@@ -65,6 +66,7 @@ export default function LoginScreen() {
               paddingBottom: 28,
             }}
           >
+            <BrandMark size="lg" style={{ marginBottom: 14 }} />
             <Text
               style={{
                 color: colors.primarySoft,
@@ -73,7 +75,7 @@ export default function LoginScreen() {
                 fontSize: 12,
               }}
             >
-              AIRPORT EQUIPMENT
+              ALSTEF GROUP
             </Text>
             <Text
               style={{

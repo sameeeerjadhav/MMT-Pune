@@ -3,7 +3,8 @@ import { ScrollView, Text } from 'react-native';
 import { grnApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle } from '../components/ui';
+import { Button, Card, ErrorState, Muted, Screen, Subtitle } from '../components/ui';
+import { DetailSkeleton } from '../components/Skeleton';
 import { canAccess } from '../utils/roles';
 
 export default function GRNDetailScreen({ route, navigation }: any) {
@@ -38,7 +39,7 @@ export default function GRNDetailScreen({ route, navigation }: any) {
   }, [grn?.grn_number, navigation]);
 
   if (!id) return <ErrorState message="Missing GRN id" />;
-  if (loading) return <LoadingState />;
+  if (loading) return <DetailSkeleton />;
   if (error || !grn) return <ErrorState message={error || 'Not found'} onRetry={load} />;
 
   return (
