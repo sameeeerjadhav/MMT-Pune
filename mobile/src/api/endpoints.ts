@@ -21,13 +21,18 @@ export const dashboardApi = {
 };
 
 export const inventoryApi = {
-  list: (params?: {
-    q?: string;
-    type?: string;
-    testing_status?: string;
-    status?: string;
-    allocated?: string;
-  }) => api.get('/inventory/', { params }),
+  list: (
+    params?: {
+      q?: string;
+      type?: string;
+      testing_status?: string;
+      status?: string;
+      allocated?: string;
+      ordering?: string;
+      limit?: number;
+    },
+    config?: { signal?: AbortSignal }
+  ) => api.get('/inventory/', { params, signal: config?.signal }),
   categories: (params?: { q?: string }) => api.get('/inventory/categories/', { params }),
   items: (params?: { q?: string; include_inactive?: string }) =>
     api.get('/inventory/items/', { params }),
@@ -62,6 +67,23 @@ export const inventoryApi = {
       }],
       timeout: 60000,
     });
+  },
+  deleteItemImage: async (itemId: number) => {
+    // Query + JSON body so clear is detected even when multipart FormData is stripped.
+    // Falls back to DELETE for older servers that never had POST clear.
+    try {
+      return await api.post(
+        `/inventory/items/${itemId}/image/?clear=1`,
+        { clear: true },
+        { timeout: 30000 }
+      );
+    } catch (err: unknown) {
+      try {
+        return await api.delete(`/inventory/items/${itemId}/image/`, { timeout: 30000 });
+      } catch {
+        throw err;
+      }
+    }
   },
 };
 
@@ -102,6 +124,7 @@ export const warehouseApi = {
   updateRackLayout: (id: number, payload: unknown) =>
     api.patch(`/racks/${id}/layout/`, payload),
   locations: (params?: { q?: string }) => api.get('/locations/', { params }),
+  allocation: (id: number) => api.get(`/allocations/${id}/`),
   allocate: (payload: unknown) => api.post('/locations/allocate/', payload),
   deallocate: (payload: unknown) => api.post('/locations/deallocate/', payload),
   transfer: (payload: unknown) => api.post('/locations/transfer/', payload),
@@ -129,6 +152,7 @@ export const barcodeApi = {
   get: (value: string) => api.get(`/barcodes/${encodeURIComponent(value)}/`),
   labelUrl: (value: string) =>
     `${api.defaults.baseURL}/barcodes/${encodeURIComponent(value)}/label.png`,
+  labelPdfPath: (value: string) => `/barcodes/${encodeURIComponent(value)}/label.pdf`,
   printLog: (value: string, payload?: unknown) =>
     api.post(`/barcodes/${encodeURIComponent(value)}/print-log/`, payload || {}),
 };

@@ -4,9 +4,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { inventoryApi, barcodeApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { CubeIcon } from '../components/icons';
-import { Badge, Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle } from '../components/ui';
+import { StockLogo } from '../components/icons';
+import { Badge, Button, Card, ErrorState, Muted, Screen, Subtitle } from '../components/ui';
+import { DetailSkeleton } from '../components/Skeleton';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
+import { downloadOrBuildBarcodePdf } from '../utils/barcodePdf';
 import { colors, radius } from '../theme/tokens';
 import { canAccess } from '../utils/roles';
 
@@ -42,10 +44,13 @@ export default function BatchDetailScreen({ route, navigation }: any) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [printMsg, setPrintMsg] = useState('');
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState('');
+  const [imageBust, setImageBust] = useState(0);
+  const [removing, setRemoving] = useState(false);
   const [testingMsg, setTestingMsg] = useState('');
-  const [testingSaving, setTestingSaving] = useState(false);
+  const [testingSavingStatus, setTestingSavingStatus] = useState<string | null>(null);
 
   const load = async () => {
     try {
@@ -74,7 +79,7 @@ export default function BatchDetailScreen({ route, navigation }: any) {
   };
 
   useEffect(() => {
-    load();
+    if (id) load();
   }, [id]);
 
   useEffect(() => {
@@ -119,6 +124,7 @@ export default function BatchDetailScreen({ route, navigation }: any) {
             }
           : prev
       );
+      setImageBust(Date.now());
       setUploadMsg('Item photo updated');
     } catch (e) {
       setUploadMsg(getErrorMessage(e));
@@ -127,8 +133,35 @@ export default function BatchDetailScreen({ route, navigation }: any) {
     }
   };
 
+  const removeItemImage = async () => {
+    if (!canManage || !batch?.item?.id) return;
+    setUploadMsg('');
+    setRemoving(true);
+    try {
+      await inventoryApi.deleteItemImage(batch.item.id);
+      setBatch((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              item: {
+                ...prev.item,
+                image: null,
+                image_url: null,
+              },
+            }
+          : prev
+      );
+      setImageBust(Date.now());
+      setUploadMsg('Item photo removed');
+    } catch (e) {
+      setUploadMsg(getErrorMessage(e));
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   if (!id) return <ErrorState message="Missing batch id" />;
-  if (loading) return <LoadingState />;
+  if (loading) return <DetailSkeleton />;
   if (error || !batch) return <ErrorState message={error || 'Not found'} onRetry={load} />;
 
   const alloc = (batch.allocations || []).find((a: any) => a.is_active && a.allocation_type === 'ACTUAL');
@@ -136,7 +169,10 @@ export default function BatchDetailScreen({ route, navigation }: any) {
   const location = alloc
     ? `${alloc.warehouse} / ${alloc.rack} / ${alloc.shelf} / ${alloc.position_code}`
     : 'Unassigned';
-  const itemImage = batch.item?.image_url;
+  const rawImage = batch.item?.image_url as string | undefined;
+  const itemImage = rawImage
+    ? `${rawImage}${rawImage.includes('?') ? '&' : '?'}t=${imageBust || batch.item?.updated_at || batch.updated_at || 0}`
+    : null;
 
   return (
     <Screen style={{ padding: 0 }}>
@@ -161,14 +197,14 @@ export default function BatchDetailScreen({ route, navigation }: any) {
                   style={{
                     height: 180,
                     borderRadius: radius.md,
-                    backgroundColor: colors.primarySoft,
+                    backgroundColor: colors.surfaceMuted,
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginBottom: 12,
                     gap: 8,
                   }}
                 >
-                  <CubeIcon size={40} color={colors.primaryDark} />
+                  <StockLogo size={120} />
                   <Text style={{ fontWeight: '700', color: colors.primaryDark }}>Tap to add item photo</Text>
                   <Muted>Shown on all batches for this item</Muted>
                 </View>
@@ -191,15 +227,13 @@ export default function BatchDetailScreen({ route, navigation }: any) {
               style={{
                 height: 160,
                 borderRadius: radius.md,
-                backgroundColor: colors.primarySoft,
+                backgroundColor: colors.surfaceMuted,
                 alignItems: 'center',
                 justifyContent: 'center',
                 marginBottom: 12,
-                gap: 8,
               }}
             >
-              <CubeIcon size={36} color={colors.primaryDark} />
-              <Muted>No item photo yet</Muted>
+              <StockLogo size={110} />
             </View>
           )}
 
@@ -211,12 +245,26 @@ export default function BatchDetailScreen({ route, navigation }: any) {
           <Muted>{batch.batch_code}</Muted>
           {canManage ? (
             <>
-              <Button
-                label={itemImage ? 'Change item photo' : 'Upload item photo'}
-                variant="secondary"
-                loading={uploading}
-                onPress={pickAndUploadImage}
-              />
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    label={itemImage ? 'Change item photo' : 'Upload item photo'}
+                    variant="secondary"
+                    loading={uploading}
+                    onPress={pickAndUploadImage}
+                  />
+                </View>
+                {itemImage ? (
+                  <View style={{ flex: 1 }}>
+                    <Button
+                      label="Remove photo"
+                      variant="ghost"
+                      loading={removing}
+                      onPress={removeItemImage}
+                    />
+                  </View>
+                ) : null}
+              </View>
               {uploadMsg ? <Muted>{uploadMsg}</Muted> : null}
             </>
           ) : null}
@@ -251,9 +299,10 @@ export default function BatchDetailScreen({ route, navigation }: any) {
                   key={status}
                   label={status}
                   variant={batch.testing_status === status ? 'primary' : 'secondary'}
-                  loading={testingSaving}
+                  loading={testingSavingStatus === status}
                   onPress={async () => {
-                    setTestingSaving(true);
+                    if (testingSavingStatus) return;
+                    setTestingSavingStatus(status);
                     setTestingMsg('');
                     try {
                       const { data } = await inventoryApi.updateBatchTesting(batch.id, status);
@@ -262,7 +311,7 @@ export default function BatchDetailScreen({ route, navigation }: any) {
                     } catch (e) {
                       setTestingMsg(getErrorMessage(e));
                     } finally {
-                      setTestingSaving(false);
+                      setTestingSavingStatus(null);
                     }
                   }}
                 />
@@ -288,28 +337,74 @@ export default function BatchDetailScreen({ route, navigation }: any) {
           ) : (
             <Muted>Label image unavailable</Muted>
           )}
-          <Button
-            label="Log print"
-            variant="secondary"
-            onPress={async () => {
-              if (!batch.barcode_value) return;
-              await barcodeApi.printLog(batch.barcode_value, { notes: 'mobile label preview' });
-              setPrintMsg('Print logged');
-            }}
-          />
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <Button
+                label="Log print"
+                variant="secondary"
+                onPress={async () => {
+                  if (!batch.barcode_value) return;
+                  try {
+                    await barcodeApi.printLog(batch.barcode_value, { notes: 'mobile label preview' });
+                    setPrintMsg('Print logged');
+                  } catch (e) {
+                    setPrintMsg(getErrorMessage(e));
+                  }
+                }}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button
+                label="PDF"
+                variant="secondary"
+                loading={pdfLoading}
+                onPress={async () => {
+                  if (!batch.barcode_value) return;
+                  setPdfLoading(true);
+                  setPrintMsg('');
+                  try {
+                    const result = await downloadOrBuildBarcodePdf({
+                      barcodeValue: batch.barcode_value,
+                      labelPngDataUrl: labelUri,
+                      filename: `${batch.barcode_value}-label.pdf`,
+                    });
+                    setPrintMsg(
+                      result === 'printed'
+                        ? 'Use Save as PDF in the print dialog'
+                        : 'Share sheet opened — save or share the PDF'
+                    );
+                  } catch (e) {
+                    setPrintMsg(getErrorMessage(e));
+                  } finally {
+                    setPdfLoading(false);
+                  }
+                }}
+              />
+            </View>
+          </View>
           {printMsg ? <Muted>{printMsg}</Muted> : null}
         </Card>
 
         <Card>
           <Subtitle>History</Subtitle>
           {history.length === 0 ? <Muted>No transactions yet</Muted> : null}
-          {history.map((tx) => (
-            <DetailRow
-              key={tx.id}
-              label={tx.type}
-              value={`${tx.quantity || ''} · ${String(tx.created_at).slice(0, 19)}`}
-            />
-          ))}
+          {history.map((tx) => {
+            const title = tx.display_type || tx.type;
+            const loc =
+              tx.from_location && tx.to_location
+                ? `${tx.from_location} → ${tx.to_location}`
+                : tx.to_location || tx.from_location || '';
+            const bits = [tx.quantity != null && tx.quantity !== '' ? `Qty ${tx.quantity}` : '', loc, tx.user_name]
+              .filter(Boolean)
+              .join(' · ');
+            return (
+              <View key={tx.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.borderSoft }}>
+                <Text style={{ fontWeight: '700', color: colors.navy }}>{title}</Text>
+                {bits ? <Muted>{bits}</Muted> : null}
+                <Muted>{String(tx.created_at || '').slice(0, 19).replace('T', ' ')}</Muted>
+              </View>
+            );
+          })}
         </Card>
 
         {Number(batch.available_qty) > 0 ? (
