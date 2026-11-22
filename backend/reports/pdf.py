@@ -34,7 +34,7 @@ def build_withdrawals_report_pdf(withdrawals) -> bytes:
                 item = line.batch.item.name
             elif line.unit_id and line.unit.item_id:
                 item = line.unit.item.name
-            flag = ' OVERRIDE' if line.fifo_override else ''
+            flag = ' · age override' if line.fifo_override else ''
             line_bits.append(f'{code} · {item} · qty {line.quantity}{flag}')
         user_label = w.user.get_full_name() or w.user.username
         rows.append(
@@ -99,7 +99,7 @@ def build_withdrawal_receipt_pdf(withdrawal) -> bytes:
         Paragraph('<b>Lines</b>', styles['Heading2']),
     ]
 
-    rows = [['Code', 'Item', 'Qty', 'Location', 'FIFO']]
+    rows = [['Code', 'Item', 'Qty', 'Location', 'Age order']]
     for line in withdrawal.lines.select_related('batch__item', 'unit__item').all():
         code = line.batch.batch_code if line.batch_id else (line.unit.unit_code if line.unit_id else '—')
         item = '—'
@@ -113,7 +113,7 @@ def build_withdrawal_receipt_pdf(withdrawal) -> bytes:
             if loc
             else '—'
         )
-        fifo = 'OVERRIDE' if line.fifo_override else 'OK'
+        fifo = 'Override' if line.fifo_override else 'In order'
         rows.append([code, item, str(line.quantity), loc_str, fifo])
 
     table = Table(rows, colWidths=[30 * mm, 55 * mm, 20 * mm, 40 * mm, 25 * mm])

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { usersApi } from '../api/endpoints';
@@ -6,7 +6,6 @@ import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import {
   Badge,
-  Button,
   Card,
   ErrorState,
   FormActions,
@@ -19,6 +18,8 @@ import {
   Subtitle,
   TextAction,
 } from '../components/ui';
+import { PageHeader } from '../components/PageHeader';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
 import { canAccess, roleLabel } from '../utils/roles';
@@ -31,10 +32,10 @@ export default function UsersScreen() {
   const isMainAdmin = Boolean(user?.is_main_admin);
   const scrollPad = useTabScrollPadding(28);
   const [q, setQ] = useState('');
-  const qRef = useRef(q);
-  qRef.current = q;
+  const debouncedQ = useDebouncedValue(q, 300);
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<any | null>(null);
   const [creating, setCreating] = useState(false);
@@ -63,11 +64,13 @@ export default function UsersScreen() {
     return all;
   }, [editing, isMainAdmin]);
 
-  const load = useCallback(async (query?: string) => {
+  const load = useCallback(async (opts?: { soft?: boolean }) => {
     setError('');
+    if (opts?.soft) setSearching(true);
+    else setLoading(true);
     try {
       const { data } = await usersApi.list({
-        q: (query ?? qRef.current) || undefined,
+        q: debouncedQ.trim() || undefined,
         include_inactive: '1',
       });
       setRows(data);
@@ -75,16 +78,17 @@ export default function UsersScreen() {
       setError(getErrorMessage(e));
     } finally {
       setLoading(false);
+      setSearching(false);
     }
-  }, []);
+  }, [debouncedQ]);
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
       // Refresh profile so is_main_admin is current (and backend can claim the seat).
       void refreshProfile().catch(() => undefined);
-      load();
-    }, [load, refreshProfile])
+      void load({ soft: rows.length > 0 });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [debouncedQ, refreshProfile])
   );
 
   if (!canManage) {
@@ -175,7 +179,7 @@ export default function UsersScreen() {
       }
       setCreating(false);
       setEditing(null);
-      await load();
+      await load({ soft: true });
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -193,7 +197,7 @@ export default function UsersScreen() {
         setEditing({ ...editing, is_active: nextActive });
         setForm((f) => ({ ...f, is_active: nextActive }));
       }
-      await load();
+      await load({ soft: true });
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -225,7 +229,7 @@ export default function UsersScreen() {
         setEditing(null);
         setCreating(false);
       }
-      await load();
+      await load({ soft: true });
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -250,23 +254,14 @@ export default function UsersScreen() {
 
   const header = (
     <View>
-      <Muted>
-        Add Admin, Supervisor, or Employee. Tap the Admin badge under Role to create another admin.
-        {isMainAdmin
-          ? ' As main admin you can also edit, activate, or delete other admins.'
-          : ' Only the main admin can edit or delete existing admin accounts.'}
-      </Muted>
+      <PageHeader title="Users" safeTop />
       <SearchInput
         placeholder="Search users..."
         value={q}
         onChangeText={setQ}
-        onSubmitEditing={() => load(q)}
-        onClear={() => {
-          setQ('');
-          load('');
-        }}
+        searching={searching}
+        onClear={() => setQ('')}
       />
-      <Button label="Search" variant="secondary" onPress={() => load(q)} />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Subtitle>Users ({rows.length})</Subtitle>
         <TextAction

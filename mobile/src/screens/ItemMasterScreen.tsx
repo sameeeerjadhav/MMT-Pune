@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { inventoryApi } from '../api/endpoints';
@@ -19,6 +19,7 @@ import {
   Subtitle,
   TextAction,
 } from '../components/ui';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
 import { canAccess } from '../utils/roles';
@@ -28,10 +29,10 @@ export default function ItemMasterScreen() {
   const canManage = canAccess(user?.role, 'manageMasterData');
   const scrollPad = useTabScrollPadding(28);
   const [q, setQ] = useState('');
-  const qRef = useRef(q);
-  qRef.current = q;
+  const debouncedQ = useDebouncedValue(q, 300);
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<any | null>(null);
   const [creating, setCreating] = useState(false);
@@ -47,11 +48,13 @@ export default function ItemMasterScreen() {
   });
 
   const load = useCallback(
-    async (query?: string) => {
+    async (opts?: { soft?: boolean }) => {
       setError('');
+      if (opts?.soft) setSearching(true);
+      else setLoading(true);
       try {
         const { data } = await inventoryApi.items({
-          q: (query ?? qRef.current) || undefined,
+          q: debouncedQ.trim() || undefined,
           include_inactive: canManage ? '1' : undefined,
         });
         setRows(data);
@@ -59,16 +62,17 @@ export default function ItemMasterScreen() {
         setError(getErrorMessage(e));
       } finally {
         setLoading(false);
+        setSearching(false);
       }
     },
-    [canManage]
+    [canManage, debouncedQ]
   );
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      load();
-    }, [load])
+      void load({ soft: rows.length > 0 });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [debouncedQ, canManage])
   );
 
   const openCreate = () => {
@@ -133,7 +137,7 @@ export default function ItemMasterScreen() {
         await inventoryApi.createItem(payload);
       }
       closeForm();
-      await load();
+      await load({ soft: true });
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -151,7 +155,7 @@ export default function ItemMasterScreen() {
         setEditing({ ...editing, is_active: next });
         setForm((f) => ({ ...f, is_active: next }));
       }
-      await load();
+      await load({ soft: true });
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -171,7 +175,7 @@ export default function ItemMasterScreen() {
           try {
             await inventoryApi.deleteItem(item.id);
             if (editing?.id === item.id) closeForm();
-            await load();
+            await load({ soft: true });
           } catch (e) {
             setError(getErrorMessage(e));
           } finally {
@@ -192,13 +196,9 @@ export default function ItemMasterScreen() {
         placeholder="Search item code or name..."
         value={q}
         onChangeText={setQ}
-        onSubmitEditing={() => load(q)}
-        onClear={() => {
-          setQ('');
-          load('');
-        }}
+        searching={searching}
+        onClear={() => setQ('')}
       />
-      <Button label="Search" variant="secondary" onPress={() => load(q)} />
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <Subtitle>Items ({rows.length})</Subtitle>
         {canManage ? (

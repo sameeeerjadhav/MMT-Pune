@@ -16,6 +16,8 @@ import {
   SearchInput,
   Subtitle,
 } from '../components/ui';
+import { PageHeader } from '../components/PageHeader';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
 import { canAccess } from '../utils/roles';
@@ -36,29 +38,34 @@ export default function WithdrawalScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [historyQ, setHistoryQ] = useState('');
+  const debouncedHistoryQ = useDebouncedValue(historyQ, 300);
   const historyQRef = useRef(historyQ);
   historyQRef.current = historyQ;
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [historySearching, setHistorySearching] = useState(false);
   const [historyError, setHistoryError] = useState('');
   const syncedParams = useRef('');
 
-  const loadHistory = useCallback(async (query?: string) => {
+  const loadHistory = useCallback(async (opts?: { soft?: boolean }) => {
     setHistoryError('');
+    if (opts?.soft) setHistorySearching(true);
+    else setHistoryLoading(true);
     try {
-      const { data } = await withdrawalApi.list({ q: (query ?? historyQRef.current) || undefined });
+      const { data } = await withdrawalApi.list({ q: debouncedHistoryQ.trim() || undefined });
       setHistory(Array.isArray(data) ? data : data.results || []);
     } catch (e) {
       setHistoryError(getErrorMessage(e));
     } finally {
       setHistoryLoading(false);
+      setHistorySearching(false);
     }
-  }, []);
+  }, [debouncedHistoryQ]);
 
   useFocusEffect(
     useCallback(() => {
-      setHistoryLoading(true);
-      loadHistory();
-    }, [loadHistory])
+      void loadHistory({ soft: history.length > 0 });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [debouncedHistoryQ])
   );
 
   const validate = useCallback(
@@ -193,10 +200,11 @@ export default function WithdrawalScreen({ route, navigation }: any) {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <OutIcon size={22} color={colors.accent} />
-          <Muted>Backend validates stock and FIFO inside a DB transaction.</Muted>
-        </View>
+        <PageHeader
+          title="Withdrawal"
+          safeTop
+          right={<OutIcon size={22} color={colors.accent} />}
+        />
 
         <Card>
           <Subtitle>Purpose</Subtitle>
@@ -256,10 +264,10 @@ export default function WithdrawalScreen({ route, navigation }: any) {
             />
           ) : null}
 
-          <Button label="Validate FIFO / stock" variant="secondary" onPress={() => validate()} />
+          <Button label="Check stock & age order" variant="secondary" onPress={() => validate()} />
           {SHOW_DEMO_TOOLS ? (
             <Button
-              label="Load BATCH-002 for FIFO demo"
+              label="Load BATCH-002 for older-stock demo"
               variant="secondary"
               onPress={async () => {
                 setError('');
@@ -305,7 +313,10 @@ export default function WithdrawalScreen({ route, navigation }: any) {
           </Card>
         ) : null}
 
-        {(fifoBlocked || error.includes('FIFO')) && canOverride ? (
+        {(fifoBlocked ||
+          error.toLowerCase().includes('older stock') ||
+          error.includes('FIFO')) &&
+        canOverride ? (
           <Card>
             <Subtitle>Supervisor override</Subtitle>
             <Muted>Only use this if you must take newer stock before older stock.</Muted>
@@ -328,23 +339,8 @@ export default function WithdrawalScreen({ route, navigation }: any) {
             placeholder="Search purpose, batch, user..."
             value={historyQ}
             onChangeText={setHistoryQ}
-            onSubmitEditing={() => {
-              setHistoryLoading(true);
-              loadHistory(historyQ);
-            }}
-            onClear={() => {
-              setHistoryQ('');
-              setHistoryLoading(true);
-              loadHistory('');
-            }}
-          />
-          <Button
-            label="Search history"
-            variant="secondary"
-            onPress={() => {
-              setHistoryLoading(true);
-              loadHistory(historyQ);
-            }}
+            searching={historySearching}
+            onClear={() => setHistoryQ('')}
           />
           {historyLoading ? (
             <LoadingState />
@@ -355,8 +351,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
                 label="Retry history"
                 variant="secondary"
                 onPress={() => {
-                  setHistoryLoading(true);
-                  loadHistory();
+                  void loadHistory();
                 }}
               />
             </>

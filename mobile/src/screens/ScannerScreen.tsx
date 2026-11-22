@@ -5,6 +5,7 @@ import { inventoryApi } from '../api/endpoints';
 import { getErrorMessage, SHOW_DEMO_TOOLS } from '../api/client';
 import { CameraIcon, ScanHeroIcon } from '../components/icons';
 import { Badge, Button, Card, FifoAlert, Input, Muted, Screen, Subtitle } from '../components/ui';
+import { PageHeader } from '../components/PageHeader';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
 
@@ -46,9 +47,9 @@ export default function ScannerScreen({ navigation }: any) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        <PageHeader title="Scanner" safeTop />
         <View style={{ alignItems: 'center', marginBottom: 12 }}>
           <ScanHeroIcon size={72} />
-          <Muted>Camera, manual entry, or simulated seed barcodes.</Muted>
         </View>
 
         {permission?.granted && scanning ? (

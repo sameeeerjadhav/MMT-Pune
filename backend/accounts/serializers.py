@@ -42,8 +42,9 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'date_joined', 'last_login', 'is_main_admin')
 
     def get_is_main_admin(self, obj):
-        # Prefer existing superuser; otherwise claim seat if none exists yet.
-        return bool(obj.claim_main_admin_if_needed())
+        # Read-only flag — never claim here (listing/create would promote arbitrary users).
+        # Claim runs only on login/profile for request.user.
+        return bool(obj.is_superuser)
 
 
 class StaffUserCreateSerializer(serializers.Serializer):

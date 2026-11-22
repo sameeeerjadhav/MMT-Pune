@@ -31,28 +31,27 @@ from warehouses.models import Rack
 
 class InventoryListView(APIView):
     def get(self, request):
+        from django.db.models import Exists, OuterRef
+
         q = request.query_params.get('q', '').strip()
-        inv_type = request.query_params.get('type')
+        inv_type = (request.query_params.get('type') or '').strip().upper()
+        testing = (request.query_params.get('testing_status') or '').strip().upper()
+        unit_status = (request.query_params.get('status') or '').strip().upper()
+        allocated = (request.query_params.get('allocated') or '').strip().lower()
+
+        alloc_prefetch = Prefetch(
+            'allocations',
+            queryset=StockAllocation.objects.filter(is_active=True).select_related(
+                'position__shelf__rack__warehouse'
+            ),
+        )
         batch_qs = InventoryBatch.objects.select_related(
             'item', 'item__category', 'barcode', 'grn_line__grn'
-        ).prefetch_related(
-            Prefetch(
-                'allocations',
-                queryset=StockAllocation.objects.filter(is_active=True).select_related(
-                    'position__shelf__rack__warehouse'
-                ),
-            )
-        )
+        ).prefetch_related(alloc_prefetch)
         unit_qs = InventoryUnit.objects.select_related(
             'item', 'item__category', 'barcode', 'grn_line__grn'
-        ).prefetch_related(
-            Prefetch(
-                'allocations',
-                queryset=StockAllocation.objects.filter(is_active=True).select_related(
-                    'position__shelf__rack__warehouse'
-                ),
-            )
-        )
+        ).prefetch_related(alloc_prefetch)
+
         if q:
             batch_qs = batch_qs.filter(
                 Q(batch_code__icontains=q)
@@ -66,15 +65,38 @@ class InventoryListView(APIView):
                 | Q(item__item_code__icontains=q)
                 | Q(barcode__value__icontains=q)
             )
+        if testing in ('PENDING', 'PASSED', 'FAILED'):
+            batch_qs = batch_qs.filter(testing_status=testing)
+            unit_qs = unit_qs.filter(testing_status=testing)
+        if unit_status in ('AVAILABLE', 'WITHDRAWN', 'FAILED', 'RESERVED'):
+            unit_qs = unit_qs.filter(status=unit_status)
+
+        if allocated in ('1', 'true', 'yes', '0', 'false', 'no'):
+            want_alloc = allocated in ('1', 'true', 'yes')
+            batch_on_rack = Exists(
+                StockAllocation.objects.filter(
+                    batch_id=OuterRef('pk'), is_active=True, allocation_type='ACTUAL'
+                )
+            )
+            unit_on_rack = Exists(
+                StockAllocation.objects.filter(
+                    unit_id=OuterRef('pk'), is_active=True, allocation_type='ACTUAL'
+                )
+            )
+            batch_qs = batch_qs.annotate(_on_rack=batch_on_rack).filter(_on_rack=want_alloc)
+            unit_qs = unit_qs.annotate(_on_rack=unit_on_rack).filter(_on_rack=want_alloc)
+
+        only_units = inv_type == 'UNIT'
+        only_batches = inv_type in ('BATCH', 'BULK')
         ctx = {'request': request}
         batches = (
             []
-            if inv_type == 'UNIT'
+            if only_units
             else InventoryBatchSerializer(batch_qs.order_by('received_at'), many=True, context=ctx).data
         )
         units = (
             []
-            if inv_type == 'BULK'
+            if only_batches
             else InventoryUnitSerializer(unit_qs.order_by('received_at'), many=True, context=ctx).data
         )
         return Response({'batches': batches, 'units': units})

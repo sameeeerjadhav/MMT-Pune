@@ -5,6 +5,7 @@ import { warehouseApi, inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { RackIcon } from '../components/icons';
+import { PageHeader } from '../components/PageHeader';
 import {
   Badge,
   Button,
@@ -23,6 +24,7 @@ import {
   Subtitle,
   TextAction,
 } from '../components/ui';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
 import { canAccess } from '../utils/roles';
@@ -236,12 +238,14 @@ export function WarehouseListScreen({ navigation }: any) {
   const [racks, setRacks] = useState<any[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<number | null>(null);
   const [rackQuery, setRackQuery] = useState('');
+  const debouncedRackQuery = useDebouncedValue(rackQuery, 300);
   const rackQueryRef = useRef(rackQuery);
   rackQueryRef.current = rackQuery;
   const selectedWhRef = useRef(selectedWarehouse);
   selectedWhRef.current = selectedWarehouse;
   const loadSeq = useRef(0);
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [showCreateRack, setShowCreateRack] = useState(false);
   const [showWhForm, setShowWhForm] = useState(false);
@@ -255,12 +259,13 @@ export function WarehouseListScreen({ navigation }: any) {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(
-    async (q?: string, warehouseId?: number | null) => {
+    async (q?: string, warehouseId?: number | null, soft = false) => {
       const seq = ++loadSeq.current;
+      if (soft) setSearching(true);
       try {
         const params: any = {};
         if (canManage) params.include_inactive = '1';
-        const query = (q ?? rackQueryRef.current).trim();
+        const query = (q ?? debouncedRackQuery).trim();
         const whFilter = warehouseId !== undefined ? warehouseId : selectedWhRef.current;
         const [wh, rackRes] = await Promise.all([
           warehouseApi.warehouses(params),
@@ -288,20 +293,24 @@ export function WarehouseListScreen({ navigation }: any) {
         if (seq !== loadSeq.current) return;
         setError(getErrorMessage(e));
       } finally {
-        if (seq === loadSeq.current) setLoading(false);
+        if (seq === loadSeq.current) {
+          setLoading(false);
+          setSearching(false);
+        }
       }
     },
-    [canManage]
+    [canManage, debouncedRackQuery]
   );
 
   useFocusEffect(
     useCallback(() => {
-      load();
-    }, [load])
+      void load(debouncedRackQuery, undefined, warehouses.length > 0 || racks.length > 0);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [debouncedRackQuery, canManage])
   );
 
   const filteredRacks =
-    selectedWarehouse && !rackQuery.trim()
+    selectedWarehouse && !debouncedRackQuery.trim()
       ? racks.filter((r) => r.warehouse === selectedWarehouse || r.warehouse_id === selectedWarehouse)
       : racks;
 
@@ -496,22 +505,19 @@ export function WarehouseListScreen({ navigation }: any) {
 
   const header = (
     <View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <RackIcon size={22} color={colors.primaryDark} />
-        <Muted>Search racks, open maps, and manage stock placement.</Muted>
-      </View>
+      <PageHeader
+        title="Floors"
+        safeTop
+        right={<RackIcon size={22} color={colors.primaryDark} />}
+      />
 
       <SearchInput
         placeholder="Search racks..."
         value={rackQuery}
         onChangeText={setRackQuery}
-        onSubmitEditing={() => load(rackQuery)}
-        onClear={() => {
-          setRackQuery('');
-          load('');
-        }}
+        searching={searching}
+        onClear={() => setRackQuery('')}
       />
-      <Button label="Search" variant="secondary" onPress={() => load(rackQuery)} />
 
       <Card>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -812,6 +818,7 @@ export function AllocateScreen({ route }: any) {
   const [units, setUnits] = useState<any[]>([]);
   const [mode, setMode] = useState<'batch' | 'unit'>('batch');
   const [stockQ, setStockQ] = useState('');
+  const debouncedStockQ = useDebouncedValue(stockQ, 300);
   const stockQRef = useRef(stockQ);
   stockQRef.current = stockQ;
   const [batchId, setBatchId] = useState<number | null>(null);
@@ -822,6 +829,7 @@ export function AllocateScreen({ route }: any) {
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
   const appliedParams = useRef('');
 
   useFocusEffect(
@@ -839,11 +847,12 @@ export function AllocateScreen({ route }: any) {
   );
 
   const loadPickers = useCallback(async (opts?: { stockQ?: string }) => {
-    const sq = opts?.stockQ ?? stockQRef.current;
+    const sq = opts?.stockQ ?? debouncedStockQ;
+    setSearching(true);
     try {
       const [loc, inv] = await Promise.all([
         warehouseApi.locations(),
-        inventoryApi.list({ q: sq || undefined }),
+        inventoryApi.list({ q: sq.trim() || undefined }),
       ]);
       setLocations(loc.data || []);
       // Allocate only QA-passed stock that is still available to put away.
@@ -859,8 +868,10 @@ export function AllocateScreen({ route }: any) {
       );
     } catch (e) {
       setError(getErrorMessage(e));
+    } finally {
+      setSearching(false);
     }
-  }, []);
+  }, [debouncedStockQ]);
 
   useEffect(() => {
     loadPickers();
@@ -916,13 +927,9 @@ export function AllocateScreen({ route }: any) {
             placeholder={mode === 'batch' ? 'Search batch / item...' : 'Search unit / item...'}
             value={stockQ}
             onChangeText={setStockQ}
-            onSubmitEditing={() => loadPickers()}
-            onClear={() => {
-              setStockQ('');
-              loadPickers({ stockQ: '' });
-            }}
+            searching={searching}
+            onClear={() => setStockQ('')}
           />
-          <Button label="Search stock" variant="secondary" onPress={() => loadPickers()} />
           <Muted>
             {mode === 'batch' ? `${batches.length} batches` : `${units.length} units`} · scroll inside box
           </Muted>
@@ -1041,9 +1048,11 @@ export function TransferScreen({ route }: any) {
   const [batches, setBatches] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
   const [stockQ, setStockQ] = useState('');
+  const debouncedStockQ = useDebouncedValue(stockQ, 300);
   const stockQRef = useRef(stockQ);
   stockQRef.current = stockQ;
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
   const appliedParams = useRef('');
 
   useFocusEffect(
@@ -1078,19 +1087,22 @@ export function TransferScreen({ route }: any) {
   );
 
   const loadPickers = useCallback(async (opts?: { stockQ?: string }) => {
-    const sq = opts?.stockQ ?? stockQRef.current;
+    const sq = opts?.stockQ ?? debouncedStockQ;
+    setSearching(true);
     try {
       const [loc, inv] = await Promise.all([
         warehouseApi.locations(),
-        inventoryApi.list({ q: sq || undefined }),
+        inventoryApi.list({ q: sq.trim() || undefined }),
       ]);
       setLocations(loc.data || []);
       setBatches(inv.data.batches || []);
       setUnits(inv.data.units || []);
     } catch (e) {
       setError(getErrorMessage(e));
+    } finally {
+      setSearching(false);
     }
-  }, []);
+  }, [debouncedStockQ]);
 
   useEffect(() => {
     loadPickers();
@@ -1125,13 +1137,9 @@ export function TransferScreen({ route }: any) {
             placeholder="Search batch / unit..."
             value={stockQ}
             onChangeText={setStockQ}
-            onSubmitEditing={() => loadPickers()}
-            onClear={() => {
-              setStockQ('');
-              loadPickers({ stockQ: '' });
-            }}
+            searching={searching}
+            onClear={() => setStockQ('')}
           />
-          <Button label="Search stock" variant="secondary" onPress={() => loadPickers()} />
           <Muted>Batches</Muted>
           <SelectList maxHeight={160} count={batches.length} emptyLabel="No batches found">
             {batches.slice(0, 40).map((b) => (

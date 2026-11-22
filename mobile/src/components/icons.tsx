@@ -8,6 +8,29 @@ type IconProps = {
   color?: string;
 };
 
+export function SearchIcon({ size = 24, color = colors.navy }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx="11" cy="11" r="6.5" stroke={color} strokeWidth={1.8} />
+      <Path d="M16.5 16.5L21 21" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+/** Funnel / filter glyph for search-bar filter dropdown. */
+export function FilterIcon({ size = 24, color = colors.navy }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M4 6h16l-6.5 7.5V19l-3 1.5v-7L4 6z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 export function HomeIcon({ size = 24, color = colors.navy }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -218,6 +241,55 @@ export function TabGlyph({
     >
       <Icon size={size} color={color} />
     </View>
+  );
+}
+
+/** Open eye — password visible. */
+export function EyeIcon({ size = 24, color = colors.navy }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+      <Circle cx="12" cy="12" r="3" stroke={color} strokeWidth={1.8} />
+    </Svg>
+  );
+}
+
+/** Crossed eye — password hidden. */
+export function EyeOffIcon({ size = 24, color = colors.navy }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M3 3l18 18"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M10.6 6.3A10.4 10.4 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16.4 16.4 0 0 1-3.4 3.8"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M6.7 6.8C4.1 8.5 2.5 12 2.5 12s3.5 6.5 9.5 6.5c1.4 0 2.7-.3 3.9-.8"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M9.9 9.9a3 3 0 0 0 4.2 4.2"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+    </Svg>
   );
 }
 

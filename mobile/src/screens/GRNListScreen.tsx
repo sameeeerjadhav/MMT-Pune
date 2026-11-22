@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { grnApi } from '../api/endpoints';
@@ -6,7 +6,9 @@ import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { DocIcon } from '../components/icons';
 import { Button, Card, ErrorState, LoadingState, Muted, Screen, SearchInput } from '../components/ui';
+import { PageHeader } from '../components/PageHeader';
 import { colors } from '../theme/tokens';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { canAccess } from '../utils/roles';
 
@@ -16,55 +18,57 @@ export default function GRNListScreen() {
   const scrollPad = useTabScrollPadding(28);
   const canImport = canAccess(user?.role, 'grnImport');
   const [q, setQ] = useState('');
-  const qRef = useRef(q);
-  qRef.current = q;
+  const debouncedQ = useDebouncedValue(q, 300);
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
-
-  const load = useCallback(async (query?: string) => {
-    try {
-      const { data } = await grnApi.list({ q: (query ?? qRef.current) || undefined });
-      setRows(data);
-      setError('');
-    } catch (e) {
-      setError(getErrorMessage(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      load();
-    }, [load])
+      let cancelled = false;
+      const soft = rows.length > 0;
+      (async () => {
+        if (soft) setSearching(true);
+        else setLoading(true);
+        try {
+          const { data } = await grnApi.list({ q: debouncedQ.trim() || undefined });
+          if (!cancelled) {
+            setRows(Array.isArray(data) ? data : data.results || []);
+            setError('');
+          }
+        } catch (e) {
+          if (!cancelled) setError(getErrorMessage(e));
+        } finally {
+          if (!cancelled) {
+            setLoading(false);
+            setSearching(false);
+          }
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [debouncedQ])
   );
 
   if (loading && !rows.length) return <LoadingState />;
-  if (error && !rows.length) return <ErrorState message={error} onRetry={() => load()} />;
+  if (error && !rows.length) return <ErrorState message={error} onRetry={() => setQ((x) => x)} />;
 
   return (
     <Screen>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-        <DocIcon size={22} color={colors.primaryDark} />
-        <Muted>
-          {canImport
-            ? 'Supervisors and admins can import mock GRNs from M1/Workroom samples.'
-            : 'View received goods. Import is limited to supervisors and admins.'}
-        </Muted>
-      </View>
+      <PageHeader
+        title="GRN"
+        safeTop
+        right={<DocIcon size={22} color={colors.primaryDark} />}
+      />
       <SearchInput
         placeholder="Search GRN number, vendor, ref..."
         value={q}
         onChangeText={setQ}
-        onSubmitEditing={() => load(q)}
-        onClear={() => {
-          setQ('');
-          load('');
-        }}
+        searching={searching}
+        onClear={() => setQ('')}
       />
-      <Button label="Search" variant="secondary" onPress={() => load(q)} />
       {canImport ? (
         <Button label="Import / Add Sample GRN" onPress={() => navigation.navigate('GRNImport')} />
       ) : null}

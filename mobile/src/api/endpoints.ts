@@ -21,7 +21,13 @@ export const dashboardApi = {
 };
 
 export const inventoryApi = {
-  list: (params?: { q?: string; type?: string }) => api.get('/inventory/', { params }),
+  list: (params?: {
+    q?: string;
+    type?: string;
+    testing_status?: string;
+    status?: string;
+    allocated?: string;
+  }) => api.get('/inventory/', { params }),
   categories: (params?: { q?: string }) => api.get('/inventory/categories/', { params }),
   items: (params?: { q?: string; include_inactive?: string }) =>
     api.get('/inventory/items/', { params }),

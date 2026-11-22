@@ -60,9 +60,9 @@ export function roleBlurb(role: RoleCode | undefined | null): string {
     case 'ADMIN':
       return 'Admins manage supervisors/employees, floors, racks, GRN, and reports. Only the main admin can add or remove other admins.';
     case 'SUPERVISOR':
-      return 'Floor lead: floor grids, master data, GRN import, reports, and FIFO overrides.';
+      return 'Floor lead: floor grids, master data, GRN import, reports, and older-stock overrides.';
     case 'WAREHOUSE_EMPLOYEE':
-      return 'Floor ops: scan, allocate, transfer, withdraw. No master-data edits or FIFO override.';
+      return 'Floor ops: scan, allocate, transfer, withdraw. No master-data edits or older-stock override.';
     default:
       return 'Signed in.';
   }
@@ -123,7 +123,7 @@ export function moreLinksForRole(role: RoleCode | undefined | null): MoreLink[] 
     {
       key: 'withdraw',
       title: 'Withdrawal',
-      subtitle: 'Shipment or assembly with FIFO checks',
+      subtitle: 'Shipment or assembly with older-stock checks',
       tab: 'Withdrawal',
       module: 'withdrawal',
     },
@@ -151,7 +151,7 @@ export function moreLinksForRole(role: RoleCode | undefined | null): MoreLink[] 
     {
       key: 'reports',
       title: 'Reports',
-      subtitle: 'Stock, occupancy, FIFO, withdrawals',
+      subtitle: 'Stock, occupancy, age order, withdrawals',
       tab: 'Reports',
       module: 'reports',
     },

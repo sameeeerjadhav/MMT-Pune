@@ -146,8 +146,8 @@ class InventoryTransaction(models.Model):
         ALLOCATE = 'ALLOCATE', 'Allocate'
         TRANSFER = 'TRANSFER', 'Transfer'
         WITHDRAW = 'WITHDRAW', 'Withdraw'
-        FIFO_CHECK = 'FIFO_CHECK', 'FIFO Check'
-        FIFO_OVERRIDE = 'FIFO_OVERRIDE', 'FIFO Override'
+        FIFO_CHECK = 'FIFO_CHECK', 'Older-stock check'
+        FIFO_OVERRIDE = 'FIFO_OVERRIDE', 'Older-stock override'
         ADJUST = 'ADJUST', 'Adjust'
 
     class Purpose(models.TextChoices):
