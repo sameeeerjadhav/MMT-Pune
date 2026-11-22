@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { warehouseApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -18,7 +18,7 @@ import {
 } from '../components/ui';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors, radius } from '../theme/tokens';
-import { canAccess } from '../utils/roles';
+import { canAccess, roleLabel } from '../utils/roles';
 
 type Cell = {
   position_id: number;
@@ -43,6 +43,7 @@ export default function RackMapScreen({ route, navigation }: any) {
   const id = route?.params?.id;
   const { user } = useAuth();
   const canManage = canAccess(user?.role, 'manageMasterData');
+  const canEditLayout = canAccess(user?.role, 'createRack');
   const scrollPad = useTabScrollPadding(28);
   const loadSeq = useRef(0);
   const [map, setMap] = useState<any>(null);
@@ -52,6 +53,10 @@ export default function RackMapScreen({ route, navigation }: any) {
   const [error, setError] = useState('');
   const [actionMsg, setActionMsg] = useState('');
   const [deallocating, setDeallocating] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [rowCount, setRowCount] = useState('');
+  const [colCount, setColCount] = useState('');
+  const [savingLayout, setSavingLayout] = useState(false);
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
@@ -60,6 +65,8 @@ export default function RackMapScreen({ route, navigation }: any) {
       const { data } = await warehouseApi.rackMap(id);
       if (seq !== loadSeq.current) return;
       setMap(data);
+      setRowCount(String(data?.summary?.row_count ?? data?.summary?.shelves ?? ''));
+      setColCount(String(data?.summary?.column_count ?? ''));
       if (data?.rack?.code) {
         navigation.setOptions({ title: `${data.rack.code} map` });
       }
@@ -119,9 +126,38 @@ export default function RackMapScreen({ route, navigation }: any) {
 
   const summary = map.summary || {};
   const rack = map.rack || {};
+  const allowEdit = canEditLayout || map.can_edit_layout;
   const positionLabel = selected
     ? `${rack.warehouse_code}/${rack.code}/${selected.shelf}/${selected.cell.position_code}`
     : '';
+
+  const saveLayout = async () => {
+    const rows = parseInt(rowCount, 10);
+    const cols = parseInt(colCount, 10);
+    if (!rows || !cols) {
+      setError('Enter valid rows and columns');
+      return;
+    }
+    setSavingLayout(true);
+    setError('');
+    setActionMsg('');
+    try {
+      const { data } = await warehouseApi.updateRackLayout(id, {
+        row_count: rows,
+        column_count: cols,
+      });
+      setMap(data);
+      setRowCount(String(data?.summary?.row_count ?? rows));
+      setColCount(String(data?.summary?.column_count ?? cols));
+      setEditOpen(false);
+      setActionMsg(`Layout updated to ${rows}×${cols}`);
+      setSelectedPositionId(null);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setSavingLayout(false);
+    }
+  };
 
   return (
     <Screen style={{ padding: 0 }}>
@@ -139,6 +175,7 @@ export default function RackMapScreen({ route, navigation }: any) {
               {rack.warehouse_code} · {rack.warehouse_name}
             </Muted>
           </View>
+          <Badge label={roleLabel(user?.role)} tone="primary" />
         </View>
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
@@ -147,6 +184,20 @@ export default function RackMapScreen({ route, navigation }: any) {
           <Metric label="Occupied" value={summary.occupied ?? 0} />
           <Metric label="Empty" value={summary.empty ?? 0} />
         </View>
+
+        {allowEdit ? (
+          <View style={{ marginBottom: 12 }}>
+            <Button label="Edit rows × columns" variant="secondary" onPress={() => setEditOpen(true)} />
+            <Muted>Change how many shelves (rows) and positions (columns) this rack has.</Muted>
+          </View>
+        ) : (
+          <View style={{ marginBottom: 12 }}>
+            <Muted>Layout is set by admin/supervisor. You can allocate and transfer stock.</Muted>
+          </View>
+        )}
+
+        {error ? <Text style={{ color: colors.danger, marginBottom: 8 }}>{error}</Text> : null}
+        {actionMsg ? <Text style={{ color: colors.success, marginBottom: 8 }}>{actionMsg}</Text> : null}
 
         <Card>
           <Subtitle>Visual rack map</Subtitle>
@@ -362,6 +413,69 @@ export default function RackMapScreen({ route, navigation }: any) {
 
         <Button label="Refresh map" variant="secondary" onPress={load} />
       </ScrollView>
+
+      <Modal visible={editOpen} transparent animationType="fade" onRequestClose={() => setEditOpen(false)}>
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: colors.overlay,
+            justifyContent: 'center',
+            padding: 24,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: radius.lg,
+              padding: 20,
+            }}
+          >
+            <Subtitle>Edit rack grid</Subtitle>
+            <Muted>
+              Rows = shelves (A, B, C…) · Columns = positions (01, 02…). Shrinking only removes empty
+              cells.
+            </Muted>
+            <Text style={{ marginTop: 12, fontWeight: '700', color: colors.navy }}>Rows (shelves)</Text>
+            <TextInput
+              value={rowCount}
+              onChangeText={setRowCount}
+              keyboardType="number-pad"
+              style={{
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: radius.sm,
+                padding: 12,
+                marginTop: 6,
+                color: colors.text,
+              }}
+            />
+            <Text style={{ marginTop: 12, fontWeight: '700', color: colors.navy }}>
+              Columns (positions)
+            </Text>
+            <TextInput
+              value={colCount}
+              onChangeText={setColCount}
+              keyboardType="number-pad"
+              style={{
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: radius.sm,
+                padding: 12,
+                marginTop: 6,
+                color: colors.text,
+              }}
+            />
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
+              <View style={{ flex: 1 }}>
+                <Button label="Cancel" variant="ghost" onPress={() => setEditOpen(false)} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button label="Save layout" onPress={saveLayout} loading={savingLayout} />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }

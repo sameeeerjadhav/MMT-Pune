@@ -31,6 +31,7 @@ import WithdrawalScreen from '../screens/WithdrawalScreen';
 import WithdrawalConfirmScreen from '../screens/WithdrawalConfirmScreen';
 import ReportsScreen from '../screens/ReportsScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import UsersScreen from '../screens/UsersScreen';
 import MoreScreen from '../screens/MoreScreen';
 
 const Stack = createNativeStackNavigator();
@@ -105,6 +106,7 @@ const TAB_DEFS: TabDef[] = [
   { name: 'GRN', title: 'GRN', component: GRNStack, isStack: true },
   { name: 'Warehouse', title: 'Floors', component: WarehouseStack, isStack: true },
   { name: 'Reports', title: 'Reports', component: ReportsScreen },
+  { name: 'Users', title: 'Users', component: UsersScreen },
   { name: 'Settings', title: 'Settings', component: SettingsScreen },
   { name: 'More', title: 'More', component: MoreScreen },
 ];

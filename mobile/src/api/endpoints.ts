@@ -7,6 +7,14 @@ export const authApi = {
   profile: () => api.get('/auth/profile/'),
 };
 
+export const usersApi = {
+  list: (params?: { q?: string; role?: string; include_inactive?: string }) =>
+    api.get('/users/', { params }),
+  detail: (id: number) => api.get(`/users/${id}/`),
+  create: (payload: unknown) => api.post('/users/', payload),
+  update: (id: number, payload: unknown) => api.patch(`/users/${id}/`, payload),
+};
+
 export const dashboardApi = {
   get: () => api.get('/dashboard/'),
 };
@@ -84,6 +92,8 @@ export const warehouseApi = {
   deleteRack: (id: number) => api.delete(`/racks/${id}/`),
   rackInventory: (id: number) => api.get(`/racks/${id}/inventory/`),
   rackMap: (id: number) => api.get(`/racks/${id}/map/`),
+  updateRackLayout: (id: number, payload: unknown) =>
+    api.patch(`/racks/${id}/layout/`, payload),
   locations: (params?: { q?: string }) => api.get('/locations/', { params }),
   allocate: (payload: unknown) => api.post('/locations/allocate/', payload),
   deallocate: (payload: unknown) => api.post('/locations/deallocate/', payload),

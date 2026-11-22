@@ -58,3 +58,79 @@ class AuthProfileTests(TestCase):
         orphan.save(update_fields=['is_superuser', 'is_staff', 'role'])
         self.assertEqual(orphan.role_code, 'ADMIN')
         self.assertTrue(orphan.has_role('ADMIN'))
+
+
+class StaffUserAdminTests(TestCase):
+    def setUp(self):
+        roles = {}
+        for code, name in [
+            ('ADMIN', 'Administrator'),
+            ('SUPERVISOR', 'Supervisor'),
+            ('WAREHOUSE_EMPLOYEE', 'Warehouse Employee'),
+        ]:
+            roles[code], _ = Role.objects.get_or_create(code=code, defaults={'name': name})
+        self.admin = User.objects.create_user(
+            username='staff_admin', password='pass12345', role=roles['ADMIN']
+        )
+        self.employee = User.objects.create_user(
+            username='staff_emp', password='pass12345', role=roles['WAREHOUSE_EMPLOYEE']
+        )
+        self.client = APIClient()
+
+    def test_employee_cannot_create_users(self):
+        self.client.force_authenticate(user=self.employee)
+        res = self.client.post(
+            '/api/users/',
+            {
+                'username': 'new_sup',
+                'password': 'pass12345',
+                'role': 'SUPERVISOR',
+                'first_name': 'Sara',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 403)
+
+    def test_admin_creates_supervisor_and_employee(self):
+        self.client.force_authenticate(user=self.admin)
+        sup = self.client.post(
+            '/api/users/',
+            {
+                'username': 'new_sup',
+                'password': 'pass12345',
+                'role': 'SUPERVISOR',
+                'first_name': 'Sara',
+                'employee_id': 'EMP-S1',
+            },
+            format='json',
+        )
+        self.assertEqual(sup.status_code, 201)
+        self.assertEqual(sup.data['role'], 'SUPERVISOR')
+
+        emp = self.client.post(
+            '/api/users/',
+            {
+                'username': 'new_emp',
+                'password': 'pass12345',
+                'role': 'WAREHOUSE_EMPLOYEE',
+                'first_name': 'Raj',
+            },
+            format='json',
+        )
+        self.assertEqual(emp.status_code, 201)
+        self.assertEqual(emp.data['role'], 'WAREHOUSE_EMPLOYEE')
+
+        listed = self.client.get('/api/users/?include_inactive=1')
+        self.assertEqual(listed.status_code, 200)
+        usernames = {u['username'] for u in listed.data}
+        self.assertIn('new_sup', usernames)
+        self.assertIn('new_emp', usernames)
+
+    def test_admin_cannot_create_another_admin_via_api(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.post(
+            '/api/users/',
+            {'username': 'hacker', 'password': 'pass12345', 'role': 'ADMIN'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 400)

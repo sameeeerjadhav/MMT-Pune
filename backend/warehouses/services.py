@@ -335,6 +335,112 @@ def create_rack(*, warehouse_id, code, name, shelves=None, floor_id=None, row_in
     return rack
 
 
+def _shelf_code_for_index(index: int) -> str:
+    """1-based index → A, B, … Z, AA, AB…"""
+    n = index
+    chars = []
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        chars.append(chr(65 + rem))
+    return ''.join(reversed(chars))
+
+
+def _position_code_for_index(index: int) -> str:
+    return f'{index:02d}'
+
+
+def _natural_sort_key(value: str):
+    import re
+
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', value or '')]
+
+
+@transaction.atomic
+def update_rack_layout(*, rack_id, row_count: int, column_count: int):
+    """
+    Resize rack map: rows = shelves, columns = positions.
+    Expanding creates empty shelves/positions. Shrinking removes only empty cells
+    (positions with no active stock, shelves with no remaining positions).
+    """
+    rack = Rack.objects.select_for_update().get(pk=rack_id)
+    shelves = list(rack.shelves.all())
+    shelves_sorted = sorted(shelves, key=lambda s: _natural_sort_key(s.code))
+
+    # Ensure we have row_count shelves (create missing with next letter codes).
+    existing_codes = {s.code for s in shelves}
+    idx = 1
+    while len(shelves_sorted) < row_count:
+        code = _shelf_code_for_index(idx)
+        idx += 1
+        if code in existing_codes:
+            continue
+        shelf = Shelf.objects.create(rack=rack, code=code, name=f'Shelf {code}')
+        existing_codes.add(code)
+        shelves_sorted.append(shelf)
+
+    # Ensure each kept shelf has column_count positions.
+    for shelf in shelves_sorted[:row_count]:
+        positions = list(shelf.positions.all())
+        positions_sorted = sorted(positions, key=lambda p: _natural_sort_key(p.code))
+        existing_pos = {p.code for p in positions}
+        pidx = 1
+        while len(positions_sorted) < column_count:
+            code = _position_code_for_index(pidx)
+            pidx += 1
+            if code in existing_pos:
+                continue
+            pos = RackPosition.objects.create(shelf=shelf, code=code, name=f'Pos {code}')
+            existing_pos.add(code)
+            positions_sorted.append(pos)
+
+        # Shrink positions beyond column_count (from the end).
+        if len(positions_sorted) > column_count:
+            for pos in reversed(positions_sorted[column_count:]):
+                has_stock = StockAllocation.objects.filter(
+                    position=pos, is_active=True, allocation_type='ACTUAL'
+                ).exists()
+                if has_stock:
+                    raise ApiError(
+                        'CELL_OCCUPIED',
+                        f'Cannot remove {shelf.code}/{pos.code}: still has stock. Move or deallocate first.',
+                        status_code=409,
+                    )
+                # Transfers may PROTECT — try delete, else clear by deactivating isn't available; raise.
+                try:
+                    pos.delete()
+                except Exception:
+                    raise ApiError(
+                        'CONFLICT',
+                        f'Cannot remove position {shelf.code}/{pos.code}: referenced by history. '
+                        'Leave the column count as-is or clear related records.',
+                        status_code=409,
+                    )
+
+    # Shrink shelves beyond row_count (from the end).
+    if len(shelves_sorted) > row_count:
+        for shelf in reversed(shelves_sorted[row_count:]):
+            for pos in shelf.positions.all():
+                has_stock = StockAllocation.objects.filter(
+                    position=pos, is_active=True, allocation_type='ACTUAL'
+                ).exists()
+                if has_stock:
+                    raise ApiError(
+                        'CELL_OCCUPIED',
+                        f'Cannot remove shelf {shelf.code}: still has stock. Move or deallocate first.',
+                        status_code=409,
+                    )
+            try:
+                shelf.delete()
+            except Exception:
+                raise ApiError(
+                    'CONFLICT',
+                    f'Cannot remove shelf {shelf.code}: referenced by history.',
+                    status_code=409,
+                )
+
+    return rack
+
+
 def _merge_or_create_batch_allocation(*, batch, position, qty: Decimal):
     """Keep at most one active ACTUAL allocation per batch+position; merge quantities."""
     existing = (

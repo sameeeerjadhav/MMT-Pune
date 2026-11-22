@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { warehouseApi, inventoryApi } from '../api/endpoints';
@@ -26,6 +26,144 @@ import {
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
 import { canAccess } from '../utils/roles';
+
+type LocationRow = {
+  id: number;
+  warehouse_id?: number;
+  warehouse: string;
+  warehouse_name?: string;
+  rack_id?: number;
+  rack: string;
+  rack_name?: string;
+  shelf: string;
+  position: string;
+  cell?: string;
+  label: string;
+};
+
+function naturalSort(a: string, b: string) {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+/** Step picker: Warehouse → Rack → Row/Column (shelf/position). */
+function LocationCascadePicker({
+  title,
+  locations,
+  selectedId,
+  onSelect,
+}: {
+  title: string;
+  locations: LocationRow[];
+  selectedId: number | null;
+  onSelect: (loc: LocationRow | null) => void;
+}) {
+  const selected = useMemo(
+    () => locations.find((l) => l.id === selectedId) || null,
+    [locations, selectedId]
+  );
+  const [warehouse, setWarehouse] = useState<string | null>(selected?.warehouse ?? null);
+  const [rack, setRack] = useState<string | null>(selected?.rack ?? null);
+
+  useEffect(() => {
+    if (!selected) return;
+    setWarehouse(selected.warehouse);
+    setRack(selected.rack);
+  }, [selected?.id, selected?.warehouse, selected?.rack]);
+
+  const warehouses = useMemo(() => {
+    const map = new Map<string, string>();
+    locations.forEach((l) => {
+      if (!map.has(l.warehouse)) map.set(l.warehouse, l.warehouse_name || l.warehouse);
+    });
+    return Array.from(map.entries())
+      .map(([code, name]) => ({ code, name }))
+      .sort((a, b) => naturalSort(a.code, b.code));
+  }, [locations]);
+
+  const racks = useMemo(() => {
+    if (!warehouse) return [];
+    const map = new Map<string, string>();
+    locations
+      .filter((l) => l.warehouse === warehouse)
+      .forEach((l) => {
+        if (!map.has(l.rack)) map.set(l.rack, l.rack_name || l.rack);
+      });
+    return Array.from(map.entries())
+      .map(([code, name]) => ({ code, name }))
+      .sort((a, b) => naturalSort(a.code, b.code));
+  }, [locations, warehouse]);
+
+  const cells = useMemo(() => {
+    if (!warehouse || !rack) return [];
+    return locations
+      .filter((l) => l.warehouse === warehouse && l.rack === rack)
+      .slice()
+      .sort((a, b) => naturalSort(a.shelf, b.shelf) || naturalSort(a.position, b.position));
+  }, [locations, warehouse, rack]);
+
+  return (
+    <Card>
+      <Subtitle>{title}</Subtitle>
+      <Muted>1. Warehouse → 2. Rack → 3. Row / column</Muted>
+
+      <Muted>1. Warehouse</Muted>
+      <SelectList maxHeight={140} count={warehouses.length} emptyLabel="No warehouses">
+        {warehouses.map((w) => (
+          <SelectRow
+            key={w.code}
+            label={w.code}
+            subtitle={w.name !== w.code ? w.name : undefined}
+            selected={warehouse === w.code}
+            onPress={() => {
+              setWarehouse(w.code);
+              setRack(null);
+              onSelect(null);
+            }}
+          />
+        ))}
+      </SelectList>
+
+      {warehouse ? (
+        <>
+          <Muted>2. Rack</Muted>
+          <SelectList maxHeight={140} count={racks.length} emptyLabel="No racks in this warehouse">
+            {racks.map((r) => (
+              <SelectRow
+                key={r.code}
+                label={r.code}
+                subtitle={r.name !== r.code ? r.name : undefined}
+                selected={rack === r.code}
+                onPress={() => {
+                  setRack(r.code);
+                  onSelect(null);
+                }}
+              />
+            ))}
+          </SelectList>
+        </>
+      ) : null}
+
+      {warehouse && rack ? (
+        <>
+          <Muted>3. Row / column</Muted>
+          <SelectList maxHeight={180} count={cells.length} emptyLabel="No cells on this rack">
+            {cells.map((c) => (
+              <SelectRow
+                key={c.id}
+                label={c.cell || `${c.shelf}/${c.position}`}
+                subtitle={`Row ${c.shelf} · Col ${c.position}`}
+                selected={selectedId === c.id}
+                onPress={() => onSelect(c)}
+              />
+            ))}
+          </SelectList>
+        </>
+      ) : null}
+
+      {selected ? <Muted>Selected: {selected.label}</Muted> : null}
+    </Card>
+  );
+}
 
 export function WarehouseListScreen({ navigation }: any) {
   const { user } = useAuth();
@@ -607,16 +745,13 @@ export function RackDetailScreen({ route, navigation }: any) {
 
 export function AllocateScreen({ route }: any) {
   const params = route?.params || {};
-  const [locations, setLocations] = useState<any[]>([]);
+  const [locations, setLocations] = useState<LocationRow[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
   const [mode, setMode] = useState<'batch' | 'unit'>('batch');
   const [stockQ, setStockQ] = useState('');
-  const [locQ, setLocQ] = useState('');
   const stockQRef = useRef(stockQ);
   stockQRef.current = stockQ;
-  const locQRef = useRef(locQ);
-  locQRef.current = locQ;
   const [batchId, setBatchId] = useState<number | null>(null);
   const [unitId, setUnitId] = useState<number | null>(null);
   const [positionId, setPositionId] = useState<number | null>(params.positionId ?? null);
@@ -641,15 +776,14 @@ export function AllocateScreen({ route }: any) {
     }, [route?.params?.positionId, route?.params?.positionLabel])
   );
 
-  const loadPickers = useCallback(async (opts?: { stockQ?: string; locQ?: string }) => {
+  const loadPickers = useCallback(async (opts?: { stockQ?: string }) => {
     const sq = opts?.stockQ ?? stockQRef.current;
-    const lq = opts?.locQ ?? locQRef.current;
     try {
       const [loc, inv] = await Promise.all([
-        warehouseApi.locations({ q: lq || undefined }),
+        warehouseApi.locations(),
         inventoryApi.list({ q: sq || undefined }),
       ]);
-      setLocations(loc.data);
+      setLocations(loc.data || []);
       setBatches(inv.data.batches || []);
       setUnits(inv.data.units || []);
     } catch (e) {
@@ -676,7 +810,7 @@ export function AllocateScreen({ route }: any) {
   return (
     <Screen>
       <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-        <Muted>Assign stock to a rack position (actual location).</Muted>
+        <Muted>Assign stock: pick warehouse, then rack, then row/column.</Muted>
         {positionLabel && positionId ? <Muted>Preselected from map: {positionLabel}</Muted> : null}
 
         <SelectionSummary lines={[stockLabel, destLabel]} />
@@ -748,34 +882,15 @@ export function AllocateScreen({ route }: any) {
           )}
         </Card>
 
-        <Card>
-          <Subtitle>Select destination</Subtitle>
-          <SearchInput
-            placeholder="Search location..."
-            value={locQ}
-            onChangeText={setLocQ}
-            onSubmitEditing={() => loadPickers()}
-            onClear={() => {
-              setLocQ('');
-              loadPickers({ locQ: '' });
-            }}
-          />
-          <Button label="Search locations" variant="secondary" onPress={() => loadPickers()} />
-          <Muted>{locations.length} locations · scroll inside box</Muted>
-          <SelectList maxHeight={220} count={locations.length} emptyLabel="No locations found">
-            {locations.slice(0, 80).map((l) => (
-              <SelectRow
-                key={l.id}
-                label={l.label}
-                selected={positionId === l.id}
-                onPress={() => {
-                  setPositionId(l.id);
-                  setPositionLabel(l.label);
-                }}
-              />
-            ))}
-          </SelectList>
-        </Card>
+        <LocationCascadePicker
+          title="Select destination"
+          locations={locations}
+          selectedId={positionId}
+          onSelect={(loc) => {
+            setPositionId(loc?.id ?? null);
+            setPositionLabel(loc?.label ?? null);
+          }}
+        />
 
         {mode === 'batch' ? (
           <Input
@@ -794,7 +909,11 @@ export function AllocateScreen({ route }: any) {
           loading={loading}
           onPress={async () => {
             if ((!batchId && !unitId) || !positionId) {
-              setError(mode === 'batch' ? 'Select batch and location' : 'Select unit and location');
+              setError(
+                mode === 'batch'
+                  ? 'Select batch and finish warehouse → rack → cell'
+                  : 'Select unit and finish warehouse → rack → cell'
+              );
               return;
             }
             setLoading(true);
@@ -833,15 +952,12 @@ export function TransferScreen({ route }: any) {
   const [qty, setQty] = useState('10');
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
-  const [locations, setLocations] = useState<any[]>([]);
+  const [locations, setLocations] = useState<LocationRow[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
   const [stockQ, setStockQ] = useState('');
-  const [locQ, setLocQ] = useState('');
   const stockQRef = useRef(stockQ);
   stockQRef.current = stockQ;
-  const locQRef = useRef(locQ);
-  locQRef.current = locQ;
   const [loading, setLoading] = useState(false);
   const appliedParams = useRef('');
 
@@ -875,15 +991,14 @@ export function TransferScreen({ route }: any) {
     ])
   );
 
-  const loadPickers = useCallback(async (opts?: { stockQ?: string; locQ?: string }) => {
+  const loadPickers = useCallback(async (opts?: { stockQ?: string }) => {
     const sq = opts?.stockQ ?? stockQRef.current;
-    const lq = opts?.locQ ?? locQRef.current;
     try {
       const [loc, inv] = await Promise.all([
-        warehouseApi.locations({ q: lq || undefined }),
+        warehouseApi.locations(),
         inventoryApi.list({ q: sq || undefined }),
       ]);
-      setLocations(loc.data);
+      setLocations(loc.data || []);
       setBatches(inv.data.batches || []);
       setUnits(inv.data.units || []);
     } catch (e) {
@@ -904,7 +1019,7 @@ export function TransferScreen({ route }: any) {
   return (
     <Screen>
       <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-        <Muted>Move stock between positions. Source must have active stock.</Muted>
+        <Muted>Move stock: pick From and To as warehouse → rack → row/column.</Muted>
 
         <SelectionSummary
           lines={[
@@ -964,42 +1079,19 @@ export function TransferScreen({ route }: any) {
           </SelectList>
         </Card>
 
-        <Card>
-          <Subtitle>From / To location</Subtitle>
-          <SearchInput
-            placeholder="Search location..."
-            value={locQ}
-            onChangeText={setLocQ}
-            onSubmitEditing={() => loadPickers()}
-            onClear={() => {
-              setLocQ('');
-              loadPickers({ locQ: '' });
-            }}
-          />
-          <Button label="Search locations" variant="secondary" onPress={() => loadPickers()} />
-          <Muted>{locations.length} locations · tap From or To on a row</Muted>
-          <SelectList maxHeight={220} count={locations.length} emptyLabel="No locations found">
-            {locations.slice(0, 80).map((l) => (
-              <SelectRow
-                key={l.id}
-                label={l.label}
-                subtitle={fromId === l.id ? 'FROM' : toId === l.id ? 'TO' : undefined}
-                selected={fromId === l.id || toId === l.id}
-                onPress={() => {}}
-                trailing={
-                  <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-                    <TextAction label="From" onPress={() => setFromId(l.id)} />
-                    <Text style={{ color: colors.border }}>·</Text>
-                    <TextAction label="To" onPress={() => setToId(l.id)} tone="muted" />
-                  </View>
-                }
-              />
-            ))}
-          </SelectList>
-          <Muted>
-            From: {fromLabel || fromId || '—'} · To: {toLabel || toId || '—'}
-          </Muted>
-        </Card>
+        <LocationCascadePicker
+          title="From location"
+          locations={locations}
+          selectedId={fromId}
+          onSelect={(loc) => setFromId(loc?.id ?? null)}
+        />
+
+        <LocationCascadePicker
+          title="To location"
+          locations={locations}
+          selectedId={toId}
+          onSelect={(loc) => setToId(loc?.id ?? null)}
+        />
 
         {mode === 'batch' ? (
           <Input placeholder="Quantity" value={qty} onChangeText={setQty} keyboardType="numeric" />
@@ -1013,7 +1105,7 @@ export function TransferScreen({ route }: any) {
           loading={loading}
           onPress={async () => {
             if ((!batchId && !unitId) || !fromId || !toId) {
-              setError('Select stock, from, and to locations');
+              setError('Select stock and finish From / To (warehouse → rack → cell)');
               return;
             }
             if (batchId && unitId) {
