@@ -77,6 +77,7 @@ class LoginView(APIView):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data['user']
+        user.claim_main_admin_if_needed()
         refresh = RefreshToken.for_user(user)
         AuditLog.objects.create(user=user, action='LOGIN', entity_type='User', entity_id=user.id)
         return Response(
@@ -105,6 +106,7 @@ class LogoutView(APIView):
 
 class ProfileView(APIView):
     def get(self, request):
+        request.user.claim_main_admin_if_needed()
         return Response(UserSerializer(request.user).data)
 
 
@@ -139,23 +141,14 @@ class StaffUserListCreateView(APIView):
             'yes',
         )
         if role:
-            if role == Role.Code.ADMIN and not _is_main_admin(request.user):
-                raise ApiError(
-                    'FORBIDDEN',
-                    'Only the main admin can list admin accounts.',
-                    status_code=403,
-                )
             qs = qs.filter(role__code=role)
-        elif _is_main_admin(request.user):
-            # Main admin sees supervisors, employees, and all admin accounts.
+        else:
+            # All admins see supervisors, employees, and admin accounts.
             qs = qs.filter(
                 Q(role__code__in=STAFF_ROLE_CODES)
                 | Q(role__code=Role.Code.ADMIN)
                 | Q(is_superuser=True)
             )
-        else:
-            # Secondary admins only manage floor staff.
-            qs = qs.filter(role__code__in=STAFF_ROLE_CODES)
         if q:
             qs = qs.filter(
                 Q(username__icontains=q)

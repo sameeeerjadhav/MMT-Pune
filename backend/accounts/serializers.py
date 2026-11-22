@@ -3,13 +3,20 @@ from rest_framework import serializers
 
 from accounts.models import Role, User
 
-# Roles any Admin may assign when creating/editing staff.
+# Roles any Admin may assign when creating users (including more admins).
+ADMIN_CREATABLE_ROLES = (
+    Role.Code.ADMIN,
+    Role.Code.SUPERVISOR,
+    Role.Code.WAREHOUSE_EMPLOYEE,
+)
+
+# Floor staff roles — any admin may assign these when editing.
 STAFF_ASSIGNABLE_ROLES = (
     Role.Code.SUPERVISOR,
     Role.Code.WAREHOUSE_EMPLOYEE,
 )
 
-# Main admin (is_superuser) may also create/edit secondary Admin accounts.
+# Only the main admin may promote someone to Admin while editing.
 MAIN_ADMIN_ASSIGNABLE_ROLES = STAFF_ASSIGNABLE_ROLES + (Role.Code.ADMIN,)
 
 
@@ -56,16 +63,7 @@ class StaffUserCreateSerializer(serializers.Serializer):
 
     def validate_role(self, value):
         role = (value or '').strip().upper()
-        actor = self.context['request'].user
-        actor.claim_main_admin_if_needed()
-        allowed = (
-            MAIN_ADMIN_ASSIGNABLE_ROLES if actor.is_superuser else STAFF_ASSIGNABLE_ROLES
-        )
-        if role not in allowed:
-            if role == Role.Code.ADMIN:
-                raise serializers.ValidationError(
-                    'Only the main admin can create additional admin accounts'
-                )
+        if role not in ADMIN_CREATABLE_ROLES:
             raise serializers.ValidationError('Invalid role')
         return role
 

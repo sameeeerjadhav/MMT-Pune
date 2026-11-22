@@ -126,18 +126,23 @@ class StaffUserAdminTests(TestCase):
         usernames = {u['username'] for u in listed.data}
         self.assertIn('new_sup', usernames)
         self.assertIn('new_emp', usernames)
-        # Secondary admin list excludes admin accounts.
-        self.assertNotIn('main_admin', usernames)
-        self.assertNotIn('staff_admin', usernames)
+        # Admins can see other admin accounts in the list.
+        self.assertIn('main_admin', usernames)
+        self.assertIn('staff_admin', usernames)
 
-    def test_secondary_admin_cannot_create_another_admin(self):
+    def test_any_admin_can_create_another_admin(self):
         self.client.force_authenticate(user=self.admin)
         res = self.client.post(
             '/api/users/',
-            {'username': 'hacker', 'password': 'pass12345', 'role': 'ADMIN'},
+            {'username': 'peer_admin', 'password': 'pass12345', 'role': 'ADMIN'},
             format='json',
         )
-        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data['role'], 'ADMIN')
+        self.assertFalse(res.data['is_main_admin'])
+        created = User.objects.get(username='peer_admin')
+        self.assertTrue(created.is_staff)
+        self.assertFalse(created.is_superuser)
 
     def test_main_admin_can_create_secondary_admin(self):
         self.client.force_authenticate(user=self.main_admin)

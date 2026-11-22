@@ -50,16 +50,18 @@ export default function UsersScreen() {
     is_active: true,
   });
 
+  // Any admin can create another admin; only main admin can promote via edit.
   const roleOptions = useMemo(() => {
-    const base: { code: StaffRole; label: string }[] = [
+    const all: { code: StaffRole; label: string }[] = [
+      { code: 'ADMIN', label: 'Admin' },
       { code: 'SUPERVISOR', label: 'Supervisor' },
       { code: 'WAREHOUSE_EMPLOYEE', label: 'Warehouse Employee' },
     ];
-    if (isMainAdmin) {
-      return [{ code: 'ADMIN' as StaffRole, label: 'Admin' }, ...base];
+    if (editing && !isMainAdmin) {
+      return all.filter((o) => o.code !== 'ADMIN');
     }
-    return base;
-  }, [isMainAdmin]);
+    return all;
+  }, [editing, isMainAdmin]);
 
   const load = useCallback(async (query?: string) => {
     setError('');
@@ -144,10 +146,6 @@ export default function UsersScreen() {
   const save = async () => {
     if (creating && (!form.username.trim() || !form.password.trim())) {
       setError('Username and password are required');
-      return;
-    }
-    if (form.role === 'ADMIN' && !isMainAdmin) {
-      setError('Only the main admin can create or assign Admin accounts');
       return;
     }
     setSaving(true);
@@ -253,13 +251,11 @@ export default function UsersScreen() {
   const header = (
     <View>
       <Muted>
+        Add Admin, Supervisor, or Employee. Tap the Admin badge under Role to create another admin.
         {isMainAdmin
-          ? 'Main admin: you can add Admin, Supervisor, or Employee. Only you manage other admins.'
-          : 'You can add Supervisor or Employee. Log in as the main admin to add another Admin.'}
+          ? ' As main admin you can also edit, activate, or delete other admins.'
+          : ' Only the main admin can edit or delete existing admin accounts.'}
       </Muted>
-      {isMainAdmin ? (
-        <Muted>Tip: when adding a user, tap the Admin badge under Role.</Muted>
-      ) : null}
       <SearchInput
         placeholder="Search users..."
         value={q}
