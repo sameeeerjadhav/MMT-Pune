@@ -43,7 +43,8 @@ export default function RackMapScreen({ route, navigation }: any) {
   const id = route?.params?.id;
   const { user } = useAuth();
   const canManage = canAccess(user?.role, 'manageMasterData');
-  const canEditLayout = canAccess(user?.role, 'createRack');
+  // Same lead gate as floor maps (Admin + Supervisor).
+  const canEditLayout = canAccess(user?.role, 'editFloorLayout') || canAccess(user?.role, 'createRack');
   const scrollPad = useTabScrollPadding(28);
   const loadSeq = useRef(0);
   const [map, setMap] = useState<any>(null);
@@ -119,6 +120,24 @@ export default function RackMapScreen({ route, navigation }: any) {
     return selected.cell.stock[0] || null;
   }, [selected, selectedStockId]);
 
+  // Must run before any early return (Rules of Hooks).
+  const allowEdit = Boolean(canEditLayout || map?.can_edit_layout);
+  React.useEffect(() => {
+    navigation.setOptions({
+      headerRight: allowEdit
+        ? () => (
+            <Pressable
+              onPress={() => setEditOpen(true)}
+              hitSlop={10}
+              style={{ paddingHorizontal: 12, paddingVertical: 6 }}
+            >
+              <Text style={{ color: colors.primaryDark, fontWeight: '800', fontSize: 15 }}>Edit</Text>
+            </Pressable>
+          )
+        : undefined,
+    });
+  }, [navigation, allowEdit]);
+
   if (!id) return <ErrorState message="Missing rack id" />;
   if (loading && !map) return <LoadingState />;
   if (error && !map) return <ErrorState message={error} onRetry={load} />;
@@ -126,16 +145,15 @@ export default function RackMapScreen({ route, navigation }: any) {
 
   const summary = map.summary || {};
   const rack = map.rack || {};
-  const allowEdit = canEditLayout || map.can_edit_layout;
+  const currentRows = Number(summary.row_count ?? summary.shelves ?? 0);
+  const currentCols = Number(summary.column_count ?? 0);
   const positionLabel = selected
     ? `${rack.warehouse_code}/${rack.code}/${selected.shelf}/${selected.cell.position_code}`
     : '';
 
-  const saveLayout = async () => {
-    const rows = parseInt(rowCount, 10);
-    const cols = parseInt(colCount, 10);
-    if (!rows || !cols) {
-      setError('Enter valid rows and columns');
+  const applyLayout = async (rows: number, cols: number, closeModal = true) => {
+    if (!rows || !cols || rows < 1 || cols < 1) {
+      setError('Enter valid rows and columns (at least 1)');
       return;
     }
     setSavingLayout(true);
@@ -149,7 +167,7 @@ export default function RackMapScreen({ route, navigation }: any) {
       setMap(data);
       setRowCount(String(data?.summary?.row_count ?? rows));
       setColCount(String(data?.summary?.column_count ?? cols));
-      setEditOpen(false);
+      if (closeModal) setEditOpen(false);
       setActionMsg(`Layout updated to ${rows}×${cols}`);
       setSelectedPositionId(null);
     } catch (e) {
@@ -158,6 +176,8 @@ export default function RackMapScreen({ route, navigation }: any) {
       setSavingLayout(false);
     }
   };
+
+  const saveLayout = () => applyLayout(parseInt(rowCount, 10), parseInt(colCount, 10), true);
 
   return (
     <Screen style={{ padding: 0 }}>
@@ -173,6 +193,7 @@ export default function RackMapScreen({ route, navigation }: any) {
             </Text>
             <Muted>
               {rack.warehouse_code} · {rack.warehouse_name}
+              {currentRows && currentCols ? ` · Grid ${currentRows}×${currentCols}` : ''}
             </Muted>
           </View>
           <Badge label={roleLabel(user?.role)} tone="primary" />
@@ -186,13 +207,37 @@ export default function RackMapScreen({ route, navigation }: any) {
         </View>
 
         {allowEdit ? (
-          <View style={{ marginBottom: 12 }}>
-            <Button label="Edit rows × columns" variant="secondary" onPress={() => setEditOpen(true)} />
-            <Muted>Change how many shelves (rows) and positions (columns) this rack has.</Muted>
-          </View>
+          <Card>
+            <Subtitle>Edit rack layout</Subtitle>
+            <Muted>Change shelves (rows) and positions (columns). Shrinking only removes empty cells.</Muted>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Button
+                  label="+ Shelf (row)"
+                  variant="secondary"
+                  loading={savingLayout}
+                  onPress={() => applyLayout(currentRows + 1, Math.max(currentCols, 1), false)}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button
+                  label="+ Column"
+                  variant="secondary"
+                  loading={savingLayout}
+                  onPress={() => applyLayout(Math.max(currentRows, 1), currentCols + 1, false)}
+                />
+              </View>
+            </View>
+            <View style={{ marginTop: 8 }}>
+              <Button label="Set exact grid size…" onPress={() => setEditOpen(true)} />
+            </View>
+          </Card>
         ) : (
           <View style={{ marginBottom: 12 }}>
-            <Muted>Layout is set by admin/supervisor. You can allocate and transfer stock.</Muted>
+            <Muted>
+              Layout editing needs Admin or Supervisor. Your role: {roleLabel(user?.role)}. You can
+              still allocate and transfer stock.
+            </Muted>
           </View>
         )}
 

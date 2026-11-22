@@ -45,7 +45,7 @@ function naturalSort(a: string, b: string) {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
-/** Step picker: Warehouse → Rack → Row/Column (shelf/position). */
+/** Step picker: Warehouse → Rack → Row/Column (one step visible at a time). */
 function LocationCascadePicker({
   title,
   locations,
@@ -63,12 +63,26 @@ function LocationCascadePicker({
   );
   const [warehouse, setWarehouse] = useState<string | null>(selected?.warehouse ?? null);
   const [rack, setRack] = useState<string | null>(selected?.rack ?? null);
+  const lastSelectedRef = useRef<LocationRow | null>(selected);
 
   useEffect(() => {
-    if (!selected) return;
-    setWarehouse(selected.warehouse);
-    setRack(selected.rack);
-  }, [selected?.id, selected?.warehouse, selected?.rack]);
+    if (selected) {
+      lastSelectedRef.current = selected;
+      setWarehouse(selected.warehouse);
+      setRack(selected.rack);
+      return;
+    }
+    // Parent cleared a prior cell selection — reset wizard only if still parked on that path.
+    // Do not wipe when the user advanced/changed warehouse (already updated local state).
+    if (selectedId == null && lastSelectedRef.current) {
+      const last = lastSelectedRef.current;
+      lastSelectedRef.current = null;
+      setWarehouse((w) => (w === last.warehouse ? null : w));
+      setRack((r) => (r === last.rack ? null : r));
+    }
+  }, [selected, selectedId]);
+
+  const step: 1 | 2 | 3 = !warehouse ? 1 : !rack ? 2 : 3;
 
   const warehouses = useMemo(() => {
     const map = new Map<string, string>();
@@ -101,32 +115,73 @@ function LocationCascadePicker({
       .sort((a, b) => naturalSort(a.shelf, b.shelf) || naturalSort(a.position, b.position));
   }, [locations, warehouse, rack]);
 
+  const warehouseName = warehouses.find((w) => w.code === warehouse)?.name || warehouse;
+  const rackName = racks.find((r) => r.code === rack)?.name || rack;
+
   return (
     <Card>
       <Subtitle>{title}</Subtitle>
-      <Muted>1. Warehouse → 2. Rack → 3. Row / column</Muted>
+      <Muted>
+        Step {step} of 3 — {step === 1 ? 'Warehouse' : step === 2 ? 'Rack number' : 'Row / column'}
+      </Muted>
 
-      <Muted>1. Warehouse</Muted>
-      <SelectList maxHeight={140} count={warehouses.length} emptyLabel="No warehouses">
-        {warehouses.map((w) => (
-          <SelectRow
-            key={w.code}
-            label={w.code}
-            subtitle={w.name !== w.code ? w.name : undefined}
-            selected={warehouse === w.code}
+      {warehouse ? (
+        <View style={styles.stepChipRow}>
+          <Pressable
             onPress={() => {
-              setWarehouse(w.code);
+              lastSelectedRef.current = null;
+              setWarehouse(null);
               setRack(null);
               onSelect(null);
             }}
-          />
-        ))}
-      </SelectList>
+            style={styles.stepChip}
+          >
+            <Text style={styles.stepChipText}>Warehouse: {warehouse}</Text>
+            <Text style={styles.stepChipChange}>Change</Text>
+          </Pressable>
+          {rack ? (
+            <Pressable
+              onPress={() => {
+                // Keep warehouse; only re-pick rack. Clear ref so effect does not wipe warehouse.
+                lastSelectedRef.current = null;
+                setRack(null);
+                onSelect(null);
+              }}
+              style={styles.stepChip}
+            >
+              <Text style={styles.stepChipText}>Rack: {rack}</Text>
+              <Text style={styles.stepChipChange}>Change</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
 
-      {warehouse ? (
+      {step === 1 ? (
         <>
-          <Muted>2. Rack</Muted>
-          <SelectList maxHeight={140} count={racks.length} emptyLabel="No racks in this warehouse">
+          <Subtitle>Select warehouse</Subtitle>
+          <SelectList maxHeight={220} count={warehouses.length} emptyLabel="No warehouses">
+            {warehouses.map((w) => (
+              <SelectRow
+                key={w.code}
+                label={w.code}
+                subtitle={w.name !== w.code ? w.name : undefined}
+                selected={warehouse === w.code}
+                onPress={() => {
+                  setWarehouse(w.code);
+                  setRack(null);
+                  onSelect(null);
+                }}
+              />
+            ))}
+          </SelectList>
+        </>
+      ) : null}
+
+      {step === 2 ? (
+        <>
+          <Subtitle>Select rack number</Subtitle>
+          <Muted>In {warehouseName}</Muted>
+          <SelectList maxHeight={220} count={racks.length} emptyLabel="No racks in this warehouse">
             {racks.map((r) => (
               <SelectRow
                 key={r.code}
@@ -143,15 +198,18 @@ function LocationCascadePicker({
         </>
       ) : null}
 
-      {warehouse && rack ? (
+      {step === 3 ? (
         <>
-          <Muted>3. Row / column</Muted>
-          <SelectList maxHeight={180} count={cells.length} emptyLabel="No cells on this rack">
+          <Subtitle>Select row / column</Subtitle>
+          <Muted>
+            {warehouse} / {rackName} — tap a cell
+          </Muted>
+          <SelectList maxHeight={240} count={cells.length} emptyLabel="No cells on this rack">
             {cells.map((c) => (
               <SelectRow
                 key={c.id}
-                label={c.cell || `${c.shelf}/${c.position}`}
-                subtitle={`Row ${c.shelf} · Col ${c.position}`}
+                label={`Row ${c.shelf}  ·  Col ${c.position}`}
+                subtitle={c.cell || `${c.shelf}/${c.position}`}
                 selected={selectedId === c.id}
                 onPress={() => onSelect(c)}
               />
@@ -160,7 +218,11 @@ function LocationCascadePicker({
         </>
       ) : null}
 
-      {selected ? <Muted>Selected: {selected.label}</Muted> : null}
+      {selected ? (
+        <View style={{ marginTop: 8 }}>
+          <Badge label={`Selected · ${selected.label}`} tone="success" />
+        </View>
+      ) : null}
     </Card>
   );
 }
@@ -784,8 +846,17 @@ export function AllocateScreen({ route }: any) {
         inventoryApi.list({ q: sq || undefined }),
       ]);
       setLocations(loc.data || []);
-      setBatches(inv.data.batches || []);
-      setUnits(inv.data.units || []);
+      // Allocate only QA-passed stock that is still available to put away.
+      setBatches(
+        (inv.data.batches || []).filter(
+          (b: any) => b.testing_status === 'PASSED' && Number(b.available_qty) > 0
+        )
+      );
+      setUnits(
+        (inv.data.units || []).filter(
+          (u: any) => u.status === 'AVAILABLE' && u.testing_status === 'PASSED'
+        )
+      );
     } catch (e) {
       setError(getErrorMessage(e));
     }
@@ -810,7 +881,7 @@ export function AllocateScreen({ route }: any) {
   return (
     <Screen>
       <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-        <Muted>Assign stock: pick warehouse, then rack, then row/column.</Muted>
+        <Muted>Allocate in 3 steps: warehouse → rack number → row/column.</Muted>
         {positionLabel && positionId ? <Muted>Preselected from map: {positionLabel}</Muted> : null}
 
         <SelectionSummary lines={[stockLabel, destLabel]} />
@@ -894,7 +965,9 @@ export function AllocateScreen({ route }: any) {
 
         {mode === 'batch' ? (
           <Input
-            placeholder={selectedBatch ? `Quantity (max ${selectedBatch.available_qty})` : 'Quantity (optional)'}
+            placeholder={
+              selectedBatch ? `Quantity (required, max ${selectedBatch.available_qty})` : 'Quantity (required)'
+            }
             value={quantity}
             onChangeText={setQuantity}
             keyboardType="numeric"
@@ -916,6 +989,18 @@ export function AllocateScreen({ route }: any) {
               );
               return;
             }
+            if (mode === 'batch') {
+              const n = Number(quantity);
+              if (!quantity.trim() || !Number.isFinite(n) || n <= 0) {
+                setError('Enter the quantity to put away');
+                return;
+              }
+              const max = Number(selectedBatch?.available_qty);
+              if (Number.isFinite(max) && n > max) {
+                setError(`Quantity cannot exceed available (${max})`);
+                return;
+              }
+            }
             setLoading(true);
             try {
               const payload: any = {
@@ -926,7 +1011,7 @@ export function AllocateScreen({ route }: any) {
                 payload.unit_id = unitId;
               } else {
                 payload.batch_id = batchId;
-                if (quantity) payload.quantity = Number(quantity);
+                payload.quantity = Number(quantity);
               }
               await warehouseApi.allocate(payload);
               setMsg('Allocated successfully');
@@ -949,7 +1034,7 @@ export function TransferScreen({ route }: any) {
   const [toId, setToId] = useState<number | null>(null);
   const [batchId, setBatchId] = useState<number | null>(null);
   const [unitId, setUnitId] = useState<number | null>(null);
-  const [qty, setQty] = useState('10');
+  const [qty, setQty] = useState('');
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
   const [locations, setLocations] = useState<LocationRow[]>([]);
@@ -974,6 +1059,7 @@ export function TransferScreen({ route }: any) {
         if (p.batchId != null) {
           setBatchId(p.batchId);
           setUnitId(null);
+          setQty('');
         }
         if (p.unitId != null) {
           setUnitId(p.unitId);
@@ -1010,9 +1096,9 @@ export function TransferScreen({ route }: any) {
     loadPickers();
   }, [loadPickers]);
 
-  const mode: 'batch' | 'unit' = unitId ? 'unit' : 'batch';
   const selectedBatch = batches.find((b) => b.id === batchId);
   const selectedUnit = units.find((u) => u.id === unitId);
+  const mode: 'batch' | 'unit' | null = unitId ? 'unit' : batchId ? 'batch' : null;
   const fromLabel = locations.find((l) => l.id === fromId)?.label;
   const toLabel = locations.find((l) => l.id === toId)?.label;
 
@@ -1057,6 +1143,7 @@ export function TransferScreen({ route }: any) {
                 onPress={() => {
                   setBatchId(b.id);
                   setUnitId(null);
+                  setQty('');
                 }}
               />
             ))}
@@ -1093,8 +1180,22 @@ export function TransferScreen({ route }: any) {
           onSelect={(loc) => setToId(loc?.id ?? null)}
         />
 
-        {mode === 'batch' ? (
-          <Input placeholder="Quantity" value={qty} onChangeText={setQty} keyboardType="numeric" />
+        {!mode ? (
+          <Muted>Select a batch or unit above before setting quantity.</Muted>
+        ) : mode === 'batch' ? (
+          <>
+            <Input
+              placeholder={
+                selectedBatch
+                  ? `Qty at From cell (batch avail ${selectedBatch.available_qty})`
+                  : 'Quantity'
+              }
+              value={qty}
+              onChangeText={setQty}
+              keyboardType="numeric"
+            />
+            <Muted>Quantity cannot exceed what is currently at the From cell.</Muted>
+          </>
         ) : (
           <Muted>Unit transfers move quantity 1.</Muted>
         )}
@@ -1111,6 +1212,13 @@ export function TransferScreen({ route }: any) {
             if (batchId && unitId) {
               setError('Choose either a batch or a unit, not both');
               return;
+            }
+            if (batchId) {
+              const n = Number(qty);
+              if (!qty.trim() || !Number.isFinite(n) || n <= 0) {
+                setError('Enter a valid transfer quantity');
+                return;
+              }
             }
             setLoading(true);
             try {
@@ -1140,3 +1248,31 @@ export function TransferScreen({ route }: any) {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  stepChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  stepChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.primarySoft,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  stepChipText: {
+    color: colors.navy,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  stepChipChange: {
+    color: colors.primaryDark,
+    fontWeight: '800',
+    fontSize: 12,
+  },
+});

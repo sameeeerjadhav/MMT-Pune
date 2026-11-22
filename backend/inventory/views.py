@@ -304,20 +304,34 @@ class DashboardView(APIView):
         from grn.models import GRN
         from warehouses.models import Rack, RackTransfer
         from withdrawals.models import Withdrawal
-        from inventory.services.fifo import find_older_bulk
+        from inventory.services.fifo import find_older_bulk, find_older_unit
 
+        # Only QA-passed stock is withdrawable — mirror that in the headline metric.
         batch_agg = InventoryBatch.objects.aggregate(
             available=Sum('available_qty'),
             received=Sum('received_qty'),
         )
-        unit_available = InventoryUnit.objects.filter(status='AVAILABLE').count()
+        withdrawable_batch_qty = (
+            InventoryBatch.objects.filter(testing_status='PASSED', available_qty__gt=0).aggregate(
+                total=Sum('available_qty')
+            )['total']
+            or 0
+        )
+        unit_available = InventoryUnit.objects.filter(
+            status='AVAILABLE', testing_status='PASSED'
+        ).count()
         unit_total = InventoryUnit.objects.count()
         recent_tx = InventoryTransaction.objects.select_related('user', 'batch', 'unit')[:10]
         recent_withdrawals = Withdrawal.objects.select_related('user')[:5]
         recent_transfers = RackTransfer.objects.select_related('user')[:5]
 
         fifo_alerts = []
-        for batch in InventoryBatch.objects.filter(available_qty__gt=0).select_related('item')[:40]:
+        # Prefer newest lots — those are the ones most likely to conflict with older stock.
+        for batch in (
+            InventoryBatch.objects.filter(available_qty__gt=0, testing_status='PASSED')
+            .select_related('item')
+            .order_by('-received_at', '-id')[:40]
+        ):
             older = find_older_bulk(batch.item_id, batch.received_at, batch.id)
             if older:
                 fifo_alerts.append(
@@ -328,15 +342,35 @@ class DashboardView(APIView):
                         'older': older.batch_code,
                         'older_id': older.id,
                         'older_available': str(older.available_qty),
+                        'kind': 'BATCH',
                     }
                 )
+        for unit in (
+            InventoryUnit.objects.filter(status='AVAILABLE', testing_status='PASSED')
+            .select_related('item')
+            .order_by('-received_at', '-id')[:40]
+        ):
+            older_u = find_older_unit(unit.item_id, unit.received_at, unit.id)
+            if older_u:
+                fifo_alerts.append(
+                    {
+                        'item': unit.item.name,
+                        'newer': unit.unit_code,
+                        'newer_id': unit.id,
+                        'older': older_u.unit_code,
+                        'older_id': older_u.id,
+                        'older_available': '1',
+                        'kind': 'UNIT',
+                    }
+                )
+        fifo_alerts = fifo_alerts[:20]
 
         return Response(
             {
                 'total_inventory': float(batch_agg['received'] or 0) + unit_total,
                 'total_items': InventoryBatch.objects.values('item_id').distinct().count()
                 + InventoryUnit.objects.values('item_id').distinct().count(),
-                'available_quantity': float(batch_agg['available'] or 0) + unit_available,
+                'available_quantity': float(withdrawable_batch_qty) + unit_available,
                 'bulk_batches': InventoryBatch.objects.count(),
                 'individual_units': unit_total,
                 'pending_grns': GRN.objects.filter(status='DRAFT').count(),

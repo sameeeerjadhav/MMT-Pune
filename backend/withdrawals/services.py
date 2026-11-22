@@ -72,6 +72,8 @@ def validate_withdrawal(*, batch_id=None, unit_id=None, quantity=None):
             raise ApiError('NOT_FOUND', 'Batch not found', status_code=404)
         if batch.testing_status == 'FAILED':
             raise ApiError('INELIGIBLE', 'Cannot withdraw failed inventory')
+        if batch.testing_status == 'PENDING':
+            raise ApiError('INELIGIBLE', 'Cannot withdraw inventory still pending testing')
         if batch.available_qty <= 0:
             raise ApiError(
                 'ALREADY_WITHDRAWN',
@@ -117,6 +119,8 @@ def validate_withdrawal(*, batch_id=None, unit_id=None, quantity=None):
             raise ApiError('INELIGIBLE', f'Unit status is {unit.status}')
         if unit.testing_status == 'FAILED':
             raise ApiError('INELIGIBLE', 'Cannot withdraw failed inventory')
+        if unit.testing_status == 'PENDING':
+            raise ApiError('INELIGIBLE', 'Cannot withdraw inventory still pending testing')
         fifo = check_fifo_unit(unit, for_update=False)
         return {
             'type': 'UNIT',
@@ -151,6 +155,8 @@ def create_withdrawal(
         batch = InventoryBatch.objects.select_for_update().select_related('item').get(pk=batch_id)
         if batch.testing_status == 'FAILED':
             raise ApiError('INELIGIBLE', 'Cannot withdraw failed inventory')
+        if batch.testing_status == 'PENDING':
+            raise ApiError('INELIGIBLE', 'Cannot withdraw inventory still pending testing')
         if batch.available_qty <= 0:
             raise ApiError(
                 'ALREADY_WITHDRAWN',
@@ -224,6 +230,8 @@ def create_withdrawal(
         raise ApiError('INELIGIBLE', f'Unit status is {unit.status}')
     if unit.testing_status == 'FAILED':
         raise ApiError('INELIGIBLE', 'Cannot withdraw failed inventory')
+    if unit.testing_status == 'PENDING':
+        raise ApiError('INELIGIBLE', 'Cannot withdraw inventory still pending testing')
 
     fifo = check_fifo_unit(unit, for_update=True)
     overridden = assert_fifo_or_override(result=fifo, user=user, override_reason=override_reason)

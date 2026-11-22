@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 
@@ -85,11 +85,16 @@ def import_grn_payload(payload: dict, *, source='MOCK', system='MOCK'):
     for line in lines:
         item_code = line['item_code']
         classification = line['classification']
+        if classification not in ('BULK', 'UNIT'):
+            raise ApiError(
+                'VALIDATION_ERROR',
+                f'Invalid classification {classification!r} for item {item_code}',
+            )
         category_code = line.get('category_code') or 'GEN'
         category, _ = Category.objects.get_or_create(
             code=category_code, defaults={'name': category_code}
         )
-        item, _ = Item.objects.get_or_create(
+        item, created = Item.objects.get_or_create(
             item_code=item_code,
             defaults={
                 'name': line.get('item_name') or item_code,
@@ -99,8 +104,20 @@ def import_grn_payload(payload: dict, *, source='MOCK', system='MOCK'):
                 'uom': line.get('uom') or 'EA',
             },
         )
+        if not created and item.inventory_type != classification:
+            raise ApiError(
+                'VALIDATION_ERROR',
+                f'Item {item_code} is {item.inventory_type}; GRN line classification is {classification}',
+                details={
+                    'item_code': item_code,
+                    'item_inventory_type': item.inventory_type,
+                    'line_classification': classification,
+                },
+            )
 
         qty = Decimal(str(line['received_qty']))
+        if qty <= 0:
+            raise ApiError('VALIDATION_ERROR', f'received_qty must be positive for {item_code}')
         testing_status = line.get('testing_status') or 'PENDING'
         grn_line = GRNLine.objects.create(
             grn=grn,
@@ -113,6 +130,14 @@ def import_grn_payload(payload: dict, *, source='MOCK', system='MOCK'):
         )
 
         if classification == 'BULK':
+            batch_number = line.get('batch_number') or None
+            if batch_number and InventoryBatch.objects.filter(batch_code=batch_number).exists():
+                raise ApiError(
+                    'DUPLICATE_GRN',
+                    f'Batch number {batch_number} already exists',
+                    status_code=409,
+                    details={'batch_number': batch_number},
+                )
             batch = InventoryBatch.objects.create(
                 batch_code=f'TMP-{grn_line.id}',
                 item=item,
@@ -122,7 +147,7 @@ def import_grn_payload(payload: dict, *, source='MOCK', system='MOCK'):
                 testing_status=testing_status,
                 received_at=received_date,
             )
-            batch.batch_code = line.get('batch_number') or f'BATCH-{batch.id:04d}'
+            batch.batch_code = batch_number or f'BATCH-{batch.id:04d}'
             barcode = create_barcode(
                 'BATCH',
                 batch.id,
@@ -135,8 +160,28 @@ def import_grn_payload(payload: dict, *, source='MOCK', system='MOCK'):
                 ),
             )
             batch.barcode = barcode
-            batch.save()
+            try:
+                batch.save()
+            except IntegrityError:
+                raise ApiError(
+                    'DUPLICATE_GRN',
+                    f'Batch number {batch.batch_code} already exists',
+                    status_code=409,
+                    details={'batch_number': batch.batch_code},
+                )
+            InventoryTransaction.objects.create(
+                type='RECEIVE',
+                batch=batch,
+                quantity=qty,
+                notes=f'Received via GRN {grn.grn_number}',
+                metadata={'grn_id': grn.id, 'grn_line_id': grn_line.id},
+            )
         else:
+            if qty != qty.to_integral_value():
+                raise ApiError(
+                    'VALIDATION_ERROR',
+                    f'UNIT line for {item_code} requires a whole-number received_qty (got {qty})',
+                )
             count = int(qty)
             for _ in range(count):
                 unit = InventoryUnit.objects.create(
@@ -161,13 +206,13 @@ def import_grn_payload(payload: dict, *, source='MOCK', system='MOCK'):
                 )
                 unit.barcode = barcode
                 unit.save()
-
-        InventoryTransaction.objects.create(
-            type='RECEIVE',
-            quantity=qty,
-            notes=f'Received via GRN {grn.grn_number}',
-            metadata={'grn_id': grn.id, 'grn_line_id': grn_line.id},
-        )
+                InventoryTransaction.objects.create(
+                    type='RECEIVE',
+                    unit=unit,
+                    quantity=Decimal('1'),
+                    notes=f'Received via GRN {grn.grn_number}',
+                    metadata={'grn_id': grn.id, 'grn_line_id': grn_line.id},
+                )
 
     IntegrationLog.objects.create(
         source=source,
