@@ -13,7 +13,6 @@ import {
   ErrorState,
   FormActions,
   Input,
-  LoadingState,
   ManageActionBar,
   Muted,
   Screen,
@@ -24,6 +23,7 @@ import {
   Subtitle,
   TextAction,
 } from '../components/ui';
+import { DetailSkeleton, MapSkeleton } from '../components/Skeleton';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { colors } from '../theme/tokens';
@@ -238,7 +238,7 @@ export function WarehouseListScreen({ navigation }: any) {
   const [racks, setRacks] = useState<any[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<number | null>(null);
   const [rackQuery, setRackQuery] = useState('');
-  const debouncedRackQuery = useDebouncedValue(rackQuery, 300);
+  const debouncedRackQuery = useDebouncedValue(rackQuery, 160);
   const rackQueryRef = useRef(rackQuery);
   rackQueryRef.current = rackQuery;
   const selectedWhRef = useRef(selectedWarehouse);
@@ -500,7 +500,7 @@ export function WarehouseListScreen({ navigation }: any) {
     ]);
   };
 
-  if (loading && !warehouses.length && !racks.length) return <LoadingState />;
+  if (loading && !warehouses.length && !racks.length) return <MapSkeleton />;
   if (error && !racks.length && !warehouses.length) return <ErrorState message={error} onRetry={() => load()} />;
 
   const header = (
@@ -612,10 +612,35 @@ export function WarehouseListScreen({ navigation }: any) {
 
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
         <View style={{ flex: 1 }}>
-          <Button label="Allocate" onPress={() => navigation.navigate('Allocate')} />
+          <Button
+            label="Allocate"
+            onPress={() =>
+              navigation.navigate({
+                name: 'Allocate',
+                params: { positionId: null, positionLabel: null, resetKey: Date.now() },
+                merge: false,
+              })
+            }
+          />
         </View>
         <View style={{ flex: 1 }}>
-          <Button label="Transfer" variant="secondary" onPress={() => navigation.navigate('Transfer')} />
+          <Button
+            label="Transfer"
+            variant="secondary"
+            onPress={() =>
+              navigation.navigate({
+                name: 'Transfer',
+                params: {
+                  fromPositionId: null,
+                  toPositionId: null,
+                  batchId: null,
+                  unitId: null,
+                  resetKey: Date.now(),
+                },
+                merge: false,
+              })
+            }
+          />
         </View>
       </View>
 
@@ -774,7 +799,7 @@ export function RackDetailScreen({ route, navigation }: any) {
   }, [rack?.code, navigation]);
 
   if (!id) return <ErrorState message="Missing rack id" />;
-  if (loading) return <LoadingState />;
+  if (loading) return <DetailSkeleton />;
   if (error || !rack) return <ErrorState message={error || 'Not found'} onRetry={load} />;
 
   return (
@@ -796,14 +821,37 @@ export function RackDetailScreen({ route, navigation }: any) {
           <Subtitle>Inventory in rack</Subtitle>
           {inventory.length === 0 ? <Muted>Empty</Muted> : null}
           {inventory.map((a) => (
-            <Text key={a.id} style={{ marginBottom: 6 }}>
-              {a.batch_code
-                ? `Batch ${a.batch_code}`
-                : a.unit_code
-                  ? `Unit ${a.unit_code}`
-                  : 'Item'}{' '}
-              ({a.item_name}) @ {a.shelf}/{a.position_code} qty {a.quantity}
-            </Text>
+            <Pressable
+              key={a.id}
+              onPress={() =>
+                navigation.navigate('AllocationDetail', {
+                  allocationId: a.id,
+                  batchId: a.batch ?? null,
+                  unitId: a.unit ?? null,
+                  quantity: a.quantity ?? null,
+                  location: `${a.warehouse}/${a.rack}/${a.shelf}/${a.position_code}`,
+                  warehouseCode: a.warehouse,
+                  rackId: id,
+                  rackCode: a.rack,
+                  shelfCode: a.shelf,
+                  positionCode: a.position_code,
+                  positionId: a.position,
+                })
+              }
+              style={{ marginBottom: 10, paddingVertical: 4 }}
+            >
+              <Text style={{ fontWeight: '700', color: colors.navy }}>
+                {a.batch_code
+                  ? `Batch ${a.batch_code}`
+                  : a.unit_code
+                    ? `Unit ${a.unit_code}`
+                    : 'Item'}{' '}
+                ({a.item_name})
+              </Text>
+              <Muted>
+                {a.shelf}/{a.position_code} · qty {a.quantity} · tap for history
+              </Muted>
+            </Pressable>
           ))}
         </Card>
       </ScrollView>
@@ -818,7 +866,7 @@ export function AllocateScreen({ route }: any) {
   const [units, setUnits] = useState<any[]>([]);
   const [mode, setMode] = useState<'batch' | 'unit'>('batch');
   const [stockQ, setStockQ] = useState('');
-  const debouncedStockQ = useDebouncedValue(stockQ, 300);
+  const debouncedStockQ = useDebouncedValue(stockQ, 160);
   const stockQRef = useRef(stockQ);
   stockQRef.current = stockQ;
   const [batchId, setBatchId] = useState<number | null>(null);
@@ -835,15 +883,21 @@ export function AllocateScreen({ route }: any) {
   useFocusEffect(
     useCallback(() => {
       const p = route?.params || {};
-      const key = `${p.positionId ?? ''}|${p.positionLabel ?? ''}`;
-      if (key !== appliedParams.current && (p.positionId != null || p.positionLabel)) {
+      const key = `${p.positionId ?? ''}|${p.positionLabel ?? ''}|${p.resetKey ?? ''}`;
+      if (key !== appliedParams.current) {
         appliedParams.current = key;
-        if (p.positionId != null) setPositionId(p.positionId);
-        if (p.positionLabel) setPositionLabel(p.positionLabel);
+        if (p.positionId != null || p.positionLabel) {
+          setPositionId(p.positionId ?? null);
+          setPositionLabel(p.positionLabel ?? null);
+        } else {
+          // Fresh entry (e.g. Warehouse → Allocate) must not keep a prior map cell.
+          setPositionId(null);
+          setPositionLabel(null);
+        }
       }
       setMsg('');
       setError('');
-    }, [route?.params?.positionId, route?.params?.positionLabel])
+    }, [route?.params?.positionId, route?.params?.positionLabel, route?.params?.resetKey])
   );
 
   const loadPickers = useCallback(async (opts?: { stockQ?: string }) => {
@@ -1048,7 +1102,7 @@ export function TransferScreen({ route }: any) {
   const [batches, setBatches] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
   const [stockQ, setStockQ] = useState('');
-  const debouncedStockQ = useDebouncedValue(stockQ, 300);
+  const debouncedStockQ = useDebouncedValue(stockQ, 160);
   const stockQRef = useRef(stockQ);
   stockQRef.current = stockQ;
   const [loading, setLoading] = useState(false);
@@ -1058,23 +1112,33 @@ export function TransferScreen({ route }: any) {
   useFocusEffect(
     useCallback(() => {
       const p = route?.params || {};
-      const key = `${p.fromPositionId ?? ''}|${p.toPositionId ?? ''}|${p.batchId ?? ''}|${p.unitId ?? ''}`;
-      const hasUseful =
-        p.fromPositionId != null || p.toPositionId != null || p.batchId != null || p.unitId != null;
-      if (hasUseful && key !== appliedParams.current) {
-        appliedParams.current = key;
-        if (p.fromPositionId != null) setFromId(p.fromPositionId);
-        if (p.toPositionId != null) setToId(p.toPositionId);
-        if (p.batchId != null) {
-          setBatchId(p.batchId);
-          setUnitId(null);
-          setQty('');
-        }
-        if (p.unitId != null) {
-          setUnitId(p.unitId);
-          setBatchId(null);
-          setQty('1');
-        }
+      const key = `${p.fromPositionId ?? ''}|${p.toPositionId ?? ''}|${p.batchId ?? ''}|${p.unitId ?? ''}|${p.resetKey ?? ''}`;
+      if (key === appliedParams.current) {
+        setMsg('');
+        setError('');
+        return;
+      }
+      appliedParams.current = key;
+
+      const hasPreset =
+        p.fromPositionId != null ||
+        p.toPositionId != null ||
+        p.batchId != null ||
+        p.unitId != null;
+
+      if (hasPreset) {
+        // Apply full snapshot so omitted fields clear (no leftover batch/unit from last trip).
+        setFromId(p.fromPositionId ?? null);
+        setToId(p.toPositionId ?? null);
+        setBatchId(p.batchId ?? null);
+        setUnitId(p.unitId ?? null);
+        setQty(p.unitId != null ? '1' : '');
+      } else {
+        setFromId(null);
+        setToId(null);
+        setBatchId(null);
+        setUnitId(null);
+        setQty('');
       }
       setMsg('');
       setError('');
@@ -1083,6 +1147,7 @@ export function TransferScreen({ route }: any) {
       route?.params?.toPositionId,
       route?.params?.batchId,
       route?.params?.unitId,
+      route?.params?.resetKey,
     ])
   );
 

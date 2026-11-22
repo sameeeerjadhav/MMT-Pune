@@ -13,7 +13,7 @@
     "android": {
       "package": "com.airport.warehouseinventory",
       "adaptiveIcon": {
-        "backgroundColor": "#0F1C2E",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -48,7 +48,7 @@
     ],
     "extra": {
       "apiUrl": "https://mmt.labxco.cloud/api",
-      "preferRemoteApiInDev": true,
+      "preferRemoteApiInDev": false,
       "eas": {
         "projectId": "39dd6915-5ca0-4606-9d65-d6bd40686771"
       }

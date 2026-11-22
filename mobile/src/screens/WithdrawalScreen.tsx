@@ -38,7 +38,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [historyQ, setHistoryQ] = useState('');
-  const debouncedHistoryQ = useDebouncedValue(historyQ, 300);
+  const debouncedHistoryQ = useDebouncedValue(historyQ, 160);
   const historyQRef = useRef(historyQ);
   historyQRef.current = historyQ;
   const [historyLoading, setHistoryLoading] = useState(true);

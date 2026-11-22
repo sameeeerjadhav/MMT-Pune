@@ -97,9 +97,10 @@ export function primaryTabsForRole(role: RoleCode | undefined | null): string[] 
     return ['Dashboard', 'Inventory', 'Scanner', 'Warehouse', 'More'];
   }
   if (role === 'SUPERVISOR') {
-    return ['Dashboard', 'GRN', 'Scanner', 'Warehouse', 'More'];
+    // Stock tab so supervisors can filter/sort inventory on the floor.
+    return ['Dashboard', 'Inventory', 'Scanner', 'GRN', 'More'];
   }
-  // Employee default
+  // Employee default — Stock includes search/filter/sort for floor ops.
   return ['Dashboard', 'Withdrawal', 'Scanner', 'Inventory', 'More'];
 }
 

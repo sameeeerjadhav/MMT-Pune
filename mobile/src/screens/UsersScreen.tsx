@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Pressable, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { usersApi } from '../api/endpoints';
@@ -8,9 +8,9 @@ import {
   Badge,
   Card,
   ErrorState,
+  FilterChips,
   FormActions,
   Input,
-  LoadingState,
   ManageActionBar,
   Muted,
   Screen,
@@ -18,6 +18,7 @@ import {
   Subtitle,
   TextAction,
 } from '../components/ui';
+import { ListSkeleton } from '../components/Skeleton';
 import { PageHeader } from '../components/PageHeader';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
@@ -25,6 +26,7 @@ import { colors } from '../theme/tokens';
 import { canAccess, roleLabel } from '../utils/roles';
 
 type StaffRole = 'ADMIN' | 'SUPERVISOR' | 'WAREHOUSE_EMPLOYEE';
+type RoleFilter = '' | StaffRole;
 
 export default function UsersScreen() {
   const { user, refreshProfile } = useAuth();
@@ -32,7 +34,10 @@ export default function UsersScreen() {
   const isMainAdmin = Boolean(user?.is_main_admin);
   const scrollPad = useTabScrollPadding(28);
   const [q, setQ] = useState('');
-  const debouncedQ = useDebouncedValue(q, 300);
+  const debouncedQ = useDebouncedValue(q, 160);
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('');
+  const [draftRole, setDraftRole] = useState<RoleFilter>('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -64,31 +69,51 @@ export default function UsersScreen() {
     return all;
   }, [editing, isMainAdmin]);
 
-  const load = useCallback(async (opts?: { soft?: boolean }) => {
+  const roleFilterLabel =
+    roleFilter === 'ADMIN'
+      ? 'Admin'
+      : roleFilter === 'SUPERVISOR'
+        ? 'Supervisor'
+        : roleFilter === 'WAREHOUSE_EMPLOYEE'
+          ? 'Employee'
+          : '';
+
+  const hasRows = useRef(false);
+
+  const load = useCallback(async (opts?: { soft?: boolean; signal?: { cancelled: boolean } }) => {
     setError('');
     if (opts?.soft) setSearching(true);
     else setLoading(true);
     try {
       const { data } = await usersApi.list({
         q: debouncedQ.trim() || undefined,
+        role: roleFilter || undefined,
         include_inactive: '1',
       });
+      if (opts?.signal?.cancelled) return;
       setRows(data);
+      hasRows.current = data.length > 0;
     } catch (e) {
+      if (opts?.signal?.cancelled) return;
       setError(getErrorMessage(e));
     } finally {
-      setLoading(false);
-      setSearching(false);
+      if (!opts?.signal?.cancelled) {
+        setLoading(false);
+        setSearching(false);
+      }
     }
-  }, [debouncedQ]);
+  }, [debouncedQ, roleFilter]);
 
   useFocusEffect(
     useCallback(() => {
-      // Refresh profile so is_main_admin is current (and backend can claim the seat).
+      const signal = { cancelled: false };
+      // Refresh profile once per focus — refreshProfile is stable (no loop).
       void refreshProfile().catch(() => undefined);
-      void load({ soft: rows.length > 0 });
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [debouncedQ, refreshProfile])
+      void load({ soft: hasRows.current, signal });
+      return () => {
+        signal.cancelled = true;
+      };
+    }, [debouncedQ, roleFilter, refreshProfile, load])
   );
 
   if (!canManage) {
@@ -249,7 +274,7 @@ export default function UsersScreen() {
     );
   };
 
-  if (loading && !rows.length) return <LoadingState />;
+  if (loading && !rows.length) return <ListSkeleton rows={6} titleWidth="30%" />;
   if (error && !rows.length) return <ErrorState message={error} onRetry={() => load()} />;
 
   const header = (
@@ -261,7 +286,65 @@ export default function UsersScreen() {
         onChangeText={setQ}
         searching={searching}
         onClear={() => setQ('')}
+        onFilterPress={() => {
+          if (filtersOpen) {
+            setDraftRole(roleFilter);
+            setFiltersOpen(false);
+          } else {
+            setDraftRole(roleFilter);
+            setFiltersOpen(true);
+          }
+        }}
+        filterOpen={filtersOpen}
+        filterActive={Boolean(roleFilter)}
       />
+      {filtersOpen ? (
+        <Card>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Muted>Filter by role</Muted>
+            {draftRole ? (
+              <TextAction label="Clear" onPress={() => setDraftRole('')} />
+            ) : null}
+          </View>
+          <FilterChips
+            value={draftRole}
+            onChange={(v) => setDraftRole(v as RoleFilter)}
+            options={[
+              { value: '', label: 'All roles' },
+              { value: 'ADMIN', label: 'Admin' },
+              { value: 'SUPERVISOR', label: 'Supervisor' },
+              { value: 'WAREHOUSE_EMPLOYEE', label: 'Employee' },
+            ]}
+          />
+          <FormActions
+            primaryLabel="Apply"
+            onPrimary={() => {
+              setRoleFilter(draftRole);
+              setFiltersOpen(false);
+            }}
+            onCancel={() => {
+              setDraftRole(roleFilter);
+              setFiltersOpen(false);
+            }}
+          />
+        </Card>
+      ) : roleFilter ? (
+        <View
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            backgroundColor: colors.primarySoft,
+            borderRadius: 12,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            marginBottom: 8,
+          }}
+        >
+          <Muted>Role: {roleFilterLabel}</Muted>
+          <TextAction label="Clear" tone="muted" onPress={() => setRoleFilter('')} />
+        </View>
+      ) : null}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Subtitle>Users ({rows.length})</Subtitle>
         <TextAction
