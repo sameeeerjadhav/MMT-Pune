@@ -4,14 +4,22 @@ import * as Sharing from 'expo-sharing';
 import { API_BASE_URL } from '../api/client';
 import * as storage from './secureStorage';
 
+function ensureFileUri(uri: string) {
+  if (!uri) return uri;
+  if (uri.startsWith('file://')) return uri;
+  if (uri.startsWith('/')) return `file://${uri}`;
+  return uri;
+}
+
 export async function downloadAndSharePdf(path: string, filename: string) {
   const token = await storage.getItem('accessToken');
   const url = path.startsWith('http') ? path : `${API_BASE_URL}${path}`;
-  const dir = FileSystem.cacheDirectory;
+  const dir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
   if (!dir) {
     throw new Error('File cache is unavailable on this device');
   }
-  const target = `${dir}${filename}`;
+  const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const target = ensureFileUri(`${dir}${safeName}`);
 
   const result = await FileSystem.downloadAsync(url, target, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -28,10 +36,13 @@ export async function downloadAndSharePdf(path: string, filename: string) {
   if (!(await Sharing.isAvailableAsync())) {
     throw new Error('Sharing is unavailable on this device — PDF was downloaded to cache only');
   }
-  await Sharing.shareAsync(result.uri, {
+
+  // expo-sharing only accepts file:// (not content://).
+  const fileUri = ensureFileUri(result.uri);
+  await Sharing.shareAsync(fileUri, {
     mimeType: 'application/pdf',
     dialogTitle: filename,
     UTI: 'com.adobe.pdf',
   });
-  return result.uri;
+  return fileUri;
 }
