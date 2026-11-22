@@ -2,16 +2,18 @@ import React, { useMemo } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { TabGlyph } from '../components/icons';
+import { BootLoading } from '../components/BootLoading';
 import { colors, fonts } from '../theme/tokens';
 import { canAccessTab, primaryTabsForRole } from '../utils/roles';
 import { stackScreenOptions } from './headerOptions';
 
 import LoginScreen from '../screens/LoginScreen';
 import DashboardScreen from '../screens/DashboardScreen';
+import ProfileScreen from '../screens/ProfileScreen';
 import InventoryListScreen from '../screens/InventoryListScreen';
 import ItemMasterScreen from '../screens/ItemMasterScreen';
 import BatchDetailScreen from '../screens/BatchDetailScreen';
@@ -28,6 +30,7 @@ import {
 } from '../screens/WarehouseScreens';
 import RackMapScreen from '../screens/RackMapScreen';
 import FloorMapScreen from '../screens/FloorMapScreen';
+import AllocationDetailScreen from '../screens/AllocationDetailScreen';
 import WithdrawalScreen from '../screens/WithdrawalScreen';
 import WithdrawalConfirmScreen from '../screens/WithdrawalConfirmScreen';
 import ReportsScreen from '../screens/ReportsScreen';
@@ -39,6 +42,19 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 export { stackScreenOptions };
+
+function DashboardStack() {
+  return (
+    <Stack.Navigator screenOptions={stackScreenOptions}>
+      <Stack.Screen
+        name="DashboardHome"
+        component={DashboardScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'My profile' }} />
+    </Stack.Navigator>
+  );
+}
 
 function InventoryStack() {
   return (
@@ -76,6 +92,11 @@ function WarehouseStack() {
       <Stack.Screen name="FloorMap" component={FloorMapScreen} options={{ title: 'Floor map' }} />
       <Stack.Screen name="RackMap" component={RackMapScreen} options={{ title: 'Rack map' }} />
       <Stack.Screen name="RackDetail" component={RackDetailScreen} options={{ title: 'Rack' }} />
+      <Stack.Screen
+        name="AllocationDetail"
+        component={AllocationDetailScreen}
+        options={{ title: 'Stock details' }}
+      />
       <Stack.Screen name="Allocate" component={AllocateScreen} options={{ title: 'Allocate' }} />
       <Stack.Screen name="Transfer" component={TransferScreen} options={{ title: 'Transfer' }} />
     </Stack.Navigator>
@@ -107,7 +128,7 @@ type TabDef = {
 };
 
 const TAB_DEFS: TabDef[] = [
-  { name: 'Dashboard', title: 'Home', component: DashboardScreen },
+  { name: 'Dashboard', title: 'Home', component: DashboardStack, isStack: true },
   { name: 'Scanner', title: 'Scanner', component: ScannerScreen },
   { name: 'Inventory', title: 'Stock', component: InventoryStack, isStack: true },
   { name: 'Withdrawal', title: 'Out', component: WithdrawalStack, isStack: true },
@@ -193,38 +214,10 @@ export default function RootNavigator() {
 
   if (loading) {
     return (
-      <View
-        style={{
-          flex: 1,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: colors.background,
-          paddingHorizontal: 24,
-        }}
-      >
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text
-          style={{
-            marginTop: 12,
-            color: colors.muted,
-            textAlign: 'center',
-            fontFamily: fonts.ui,
-          }}
-        >
-          Loading warehouse…
-        </Text>
-        <Text
-          style={{
-            marginTop: 6,
-            color: colors.tabInactive,
-            textAlign: 'center',
-            fontSize: 12,
-            fontFamily: fonts.ui,
-          }}
-        >
-          If this stays blank for more than a few seconds, reload the Expo app.
-        </Text>
-      </View>
+      <BootLoading
+        message="Loading warehouse…"
+        hint="If this stays blank for more than a few seconds, reload the Expo app."
+      />
     );
   }
 

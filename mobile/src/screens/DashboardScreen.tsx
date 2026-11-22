@@ -13,16 +13,17 @@ import {
   OutIcon,
   RackIcon,
   ScanIcon,
+  UserAvatarIcon,
 } from '../components/icons';
 import {
   ActionTile,
   Badge,
   Card,
   ErrorState,
-  LoadingState,
   Muted,
   SectionLabel,
 } from '../components/ui';
+import { DashboardSkeleton } from '../components/Skeleton';
 import { colors, fonts, radius, spacing } from '../theme/tokens';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { canAccess, roleLabel } from '../utils/roles';
@@ -121,7 +122,7 @@ export default function DashboardScreen() {
     return items.slice(0, 6);
   }, [user?.role]);
 
-  if (loading && !data) return <LoadingState />;
+  if (loading && !data) return <DashboardSkeleton />;
   if (error && !data) return <ErrorState message={error} onRetry={load} />;
 
   const fifoCount = (data?.fifo_alerts || []).length;
@@ -138,8 +139,22 @@ export default function DashboardScreen() {
           end={{ x: 1, y: 1 }}
           style={[styles.hero, { paddingTop: Math.max(insets.top, 12) + 8 }]}
         >
-          <Text style={styles.heroEyebrow}>{roleLabel(user?.role).toUpperCase()}</Text>
-          <Text style={styles.heroTitle}>Hello, {user?.first_name || user?.username}</Text>
+          <View style={styles.heroTop}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.heroEyebrow}>{roleLabel(user?.role).toUpperCase()}</Text>
+              <Text style={styles.heroTitle} numberOfLines={1}>
+                Hello, {user?.first_name || user?.username}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => navigation.navigate('Profile')}
+              accessibilityLabel="Open my profile"
+              hitSlop={8}
+              style={({ pressed }) => [styles.userLogo, { opacity: pressed ? 0.85 : 1 }]}
+            >
+              <UserAvatarIcon size={44} color="#fff" backgroundColor="#4A4A4A" />
+            </Pressable>
+          </View>
 
           <View style={styles.heroMetrics}>
             <View style={styles.heroMetric}>
@@ -248,6 +263,19 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.lg,
     borderBottomLeftRadius: radius.xl,
     borderBottomRightRadius: radius.xl,
+  },
+  heroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  userLogo: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
   heroEyebrow: {
     fontFamily: fonts.uiSemi,
