@@ -1,8 +1,8 @@
-from django.db.models import Prefetch, Q, Sum
+from django.db.models import Q, Sum
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -33,34 +33,45 @@ class InventoryListView(APIView):
     def get(self, request):
         from django.db.models import Exists, OuterRef
 
+        from inventory.serializers import (
+            InventoryBatchListSerializer,
+            InventoryUnitListSerializer,
+        )
+
         q = request.query_params.get('q', '').strip()
         inv_type = (request.query_params.get('type') or '').strip().upper()
         testing = (request.query_params.get('testing_status') or '').strip().upper()
         unit_status = (request.query_params.get('status') or '').strip().upper()
         allocated = (request.query_params.get('allocated') or '').strip().lower()
+        try:
+            limit = min(max(int(request.query_params.get('limit') or 80), 1), 200)
+        except (TypeError, ValueError):
+            limit = 80
 
-        alloc_prefetch = Prefetch(
-            'allocations',
-            queryset=StockAllocation.objects.filter(is_active=True).select_related(
-                'position__shelf__rack__warehouse'
-            ),
-        )
+        # Lean joins only — list UI does not need nested allocations / label JSON.
         batch_qs = InventoryBatch.objects.select_related(
-            'item', 'item__category', 'barcode', 'grn_line__grn'
-        ).prefetch_related(alloc_prefetch)
+            'item', 'barcode', 'grn_line__grn'
+        )
         unit_qs = InventoryUnit.objects.select_related(
-            'item', 'item__category', 'barcode', 'grn_line__grn'
-        ).prefetch_related(alloc_prefetch)
+            'item', 'barcode', 'grn_line__grn'
+        )
 
         if q:
+            # Prefer indexed prefix matches on codes, then broader contains.
             batch_qs = batch_qs.filter(
-                Q(batch_code__icontains=q)
+                Q(batch_code__istartswith=q)
+                | Q(item__item_code__istartswith=q)
+                | Q(barcode__value__istartswith=q)
+                | Q(batch_code__icontains=q)
                 | Q(item__name__icontains=q)
                 | Q(item__item_code__icontains=q)
                 | Q(barcode__value__icontains=q)
             )
             unit_qs = unit_qs.filter(
-                Q(unit_code__icontains=q)
+                Q(unit_code__istartswith=q)
+                | Q(item__item_code__istartswith=q)
+                | Q(barcode__value__istartswith=q)
+                | Q(unit_code__icontains=q)
                 | Q(item__name__icontains=q)
                 | Q(item__item_code__icontains=q)
                 | Q(barcode__value__icontains=q)
@@ -86,18 +97,54 @@ class InventoryListView(APIView):
             batch_qs = batch_qs.annotate(_on_rack=batch_on_rack).filter(_on_rack=want_alloc)
             unit_qs = unit_qs.annotate(_on_rack=unit_on_rack).filter(_on_rack=want_alloc)
 
+        # Default newest first. Secondary id keeps edits from reshuffling ties.
+        ordering = (request.query_params.get('ordering') or '-received_at').strip()
+        batch_order_map = {
+            'received_at': 'received_at',
+            '-received_at': '-received_at',
+            'code': 'batch_code',
+            '-code': '-batch_code',
+            'item': 'item__name',
+            '-item': '-item__name',
+            'qty': 'available_qty',
+            '-qty': '-available_qty',
+        }
+        unit_order_map = {
+            'received_at': 'received_at',
+            '-received_at': '-received_at',
+            'code': 'unit_code',
+            '-code': '-unit_code',
+            'item': 'item__name',
+            '-item': '-item__name',
+            'qty': 'unit_code',  # units are qty 1 — stable by code
+            '-qty': '-unit_code',
+        }
+        batch_order = batch_order_map.get(ordering, '-received_at')
+        unit_order = unit_order_map.get(ordering, '-received_at')
+        id_tie = '-id' if ordering.startswith('-') else 'id'
+
         only_units = inv_type == 'UNIT'
         only_batches = inv_type in ('BATCH', 'BULK')
         ctx = {'request': request}
+        # Cap payload size so live search stays snappy.
+        half = max(limit // 2, 1) if not only_units and not only_batches else limit
         batches = (
             []
             if only_units
-            else InventoryBatchSerializer(batch_qs.order_by('received_at'), many=True, context=ctx).data
+            else InventoryBatchListSerializer(
+                batch_qs.order_by(batch_order, id_tie)[:half],
+                many=True,
+                context=ctx,
+            ).data
         )
         units = (
             []
             if only_batches
-            else InventoryUnitSerializer(unit_qs.order_by('received_at'), many=True, context=ctx).data
+            else InventoryUnitListSerializer(
+                unit_qs.order_by(unit_order, id_tie)[:half],
+                many=True,
+                context=ctx,
+            ).data
         )
         return Response({'batches': batches, 'units': units})
 
@@ -192,21 +239,65 @@ class ItemDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class ItemImageUploadView(APIView):
     permission_classes = [IsSupervisorOrAdmin]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def _clear_image(self, item):
+        if item.image:
+            try:
+                item.image.delete(save=False)
+            except OSError:
+                # Windows may briefly lock a file after /media/ serve; still clear the DB field.
+                pass
+            item.image = None
+            item.save(update_fields=['image', 'updated_at'])
+        return item
 
     def post(self, request, pk):
         item = get_object_or_404(Item, pk=pk)
+        # Clear without DELETE (older/prod servers may not allow DELETE on this route).
+        clear_raw = request.data.get('clear') if hasattr(request.data, 'get') else None
+        if clear_raw is True:
+            clear = 'true'
+        else:
+            clear = str(clear_raw or request.query_params.get('clear') or '').lower()
+        if clear in ('1', 'true', 'yes'):
+            item = self._clear_image(item)
+            return Response(ItemSerializer(item, context={'request': request}).data)
+
         image = request.FILES.get('image')
         if not image:
             raise ApiError('VALIDATION_ERROR', 'image file is required')
-        content_type = getattr(image, 'content_type', '') or ''
+
+        max_bytes = 5 * 1024 * 1024
+        size = getattr(image, 'size', None)
+        if size is not None and size > max_bytes:
+            raise ApiError('VALIDATION_ERROR', 'Image must be 5 MB or smaller')
+
+        content_type = (getattr(image, 'content_type', '') or '').lower()
         if content_type and not content_type.startswith('image/'):
             raise ApiError('VALIDATION_ERROR', 'Only image uploads are allowed')
+
+        # Always verify bytes are a real image (Content-Type can be missing/spoofed).
+        try:
+            from PIL import Image as PilImage
+
+            image.seek(0)
+            with PilImage.open(image) as verified:
+                verified.verify()
+            image.seek(0)
+        except Exception as exc:
+            raise ApiError('VALIDATION_ERROR', 'Invalid image file') from exc
+
         # Replace previous image if present
         if item.image:
             item.image.delete(save=False)
         item.image = image
         item.save(update_fields=['image', 'updated_at'])
+        return Response(ItemSerializer(item, context={'request': request}).data)
+
+    def delete(self, request, pk):
+        item = get_object_or_404(Item, pk=pk)
+        item = self._clear_image(item)
         return Response(ItemSerializer(item, context={'request': request}).data)
 
 
@@ -261,7 +352,14 @@ class UnitDetailView(generics.RetrieveAPIView):
 
 class InventoryHistoryView(APIView):
     def get(self, request, inv_type, pk):
-        qs = InventoryTransaction.objects.select_related('user', 'batch', 'unit')
+        qs = InventoryTransaction.objects.select_related(
+            'user',
+            'batch',
+            'unit',
+            'from_position__shelf__rack__warehouse',
+            'to_position__shelf__rack__warehouse',
+            'withdrawal',
+        )
         if inv_type == 'batch':
             qs = qs.filter(batch_id=pk)
         elif inv_type == 'unit':
@@ -269,6 +367,108 @@ class InventoryHistoryView(APIView):
         else:
             raise ApiError('VALIDATION_ERROR', 'type must be batch or unit')
         return Response(InventoryTransactionSerializer(qs[:100], many=True).data)
+
+
+class AllocationDetailView(APIView):
+    """Full allocation + stock origin + movement history for rack stock taps."""
+
+    def get(self, request, pk):
+        alloc = get_object_or_404(
+            StockAllocation.objects.select_related(
+                'batch__item__category',
+                'batch__barcode',
+                'batch__grn_line__grn',
+                'unit__item__category',
+                'unit__barcode',
+                'unit__grn_line__grn',
+                'position__shelf__rack__warehouse',
+            ),
+            pk=pk,
+        )
+        pos = alloc.position
+        shelf = pos.shelf
+        rack = shelf.rack
+        warehouse = rack.warehouse
+        location = f'{warehouse.code}/{rack.code}/{shelf.code}/{pos.code}'
+
+        stock = None
+        history = []
+        if alloc.batch_id:
+            b = alloc.batch
+            stock = {
+                'kind': 'BATCH',
+                'id': b.id,
+                'code': b.batch_code,
+                'item_id': b.item_id,
+                'item_code': b.item.item_code if b.item_id else None,
+                'item_name': b.item.name if b.item_id else None,
+                'uom': b.item.uom if b.item_id else None,
+                'category': getattr(b.item.category, 'name', None) if b.item_id else None,
+                'grn_id': b.grn_line.grn_id if b.grn_line_id else None,
+                'grn_number': b.grn_line.grn.grn_number if b.grn_line_id else None,
+                'received_at': b.received_at,
+                'testing_status': b.testing_status,
+                'available_qty': str(b.available_qty),
+                'received_qty': str(b.received_qty),
+                'withdrawn_qty': str(b.withdrawn_qty),
+                'barcode_value': b.barcode.value if b.barcode_id else None,
+            }
+            tx_qs = InventoryTransaction.objects.filter(batch_id=b.id)
+        elif alloc.unit_id:
+            u = alloc.unit
+            stock = {
+                'kind': 'UNIT',
+                'id': u.id,
+                'code': u.unit_code,
+                'item_id': u.item_id,
+                'item_code': u.item.item_code if u.item_id else None,
+                'item_name': u.item.name if u.item_id else None,
+                'uom': u.item.uom if u.item_id else None,
+                'category': getattr(u.item.category, 'name', None) if u.item_id else None,
+                'grn_id': u.grn_line.grn_id if u.grn_line_id else None,
+                'grn_number': u.grn_line.grn.grn_number if u.grn_line_id else None,
+                'received_at': u.received_at,
+                'testing_status': u.testing_status,
+                'status': u.status,
+                'barcode_value': u.barcode.value if u.barcode_id else None,
+            }
+            tx_qs = InventoryTransaction.objects.filter(unit_id=u.id)
+        else:
+            tx_qs = InventoryTransaction.objects.none()
+
+        history = InventoryTransactionSerializer(
+            tx_qs.select_related(
+                'user',
+                'from_position__shelf__rack__warehouse',
+                'to_position__shelf__rack__warehouse',
+                'withdrawal',
+            )[:100],
+            many=True,
+        ).data
+
+        return Response(
+            {
+                'allocation': {
+                    'id': alloc.id,
+                    'allocation_type': alloc.allocation_type,
+                    'quantity': str(alloc.quantity) if alloc.quantity is not None else None,
+                    'is_active': alloc.is_active,
+                    'created_at': alloc.created_at,
+                    'updated_at': alloc.updated_at,
+                    'position_id': alloc.position_id,
+                    'location': location,
+                    'warehouse_code': warehouse.code,
+                    'warehouse_name': warehouse.name,
+                    'rack_id': rack.id,
+                    'rack_code': rack.code,
+                    'rack_name': rack.name,
+                    'shelf_code': shelf.code,
+                    'position_code': pos.code,
+                },
+                'stock': stock,
+                'history': history,
+            }
+        )
 
 
 class ScanBarcodeView(APIView):

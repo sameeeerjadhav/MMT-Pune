@@ -612,6 +612,47 @@ class FloorMapViewTests(TestCase):
         self.assertEqual(self.spare.row_index, 2)
         self.assertEqual(self.spare.column_index, 1)
 
+    def test_shrink_blocked_when_stocked_rack_would_leave_grid(self):
+        """Stocked rack at C2 must not be orphaned by shrinking columns to 1."""
+        self.client.force_authenticate(user=self.admin)
+        self.assertEqual(self.rack.column_index, 2)
+        blocked = self.client.patch(
+            f'/api/floors/{self.floor.id}/layout/',
+            {'row_count': 2, 'column_count': 1},
+            format='json',
+        )
+        self.assertEqual(blocked.status_code, 409)
+        self.assertEqual(blocked.data.get('code'), 'CELL_OCCUPIED')
+        self.rack.refresh_from_db()
+        self.assertEqual(self.rack.column_index, 2)
+        self.assertEqual(self.floor.column_count, 3)
+
+        # Empty outside rack can be cleared; stocked rack still blocks.
+        empty = Rack.objects.create(
+            warehouse=self.wh,
+            floor=self.floor,
+            code='R-EMPTY-EDGE',
+            name='Empty edge',
+            row_index=2,
+            column_index=3,
+        )
+        still_blocked = self.client.patch(
+            f'/api/floors/{self.floor.id}/layout/',
+            {'row_count': 2, 'column_count': 1},
+            format='json',
+        )
+        self.assertEqual(still_blocked.status_code, 409)
+
+        # Growing is fine.
+        grow = self.client.patch(
+            f'/api/floors/{self.floor.id}/layout/',
+            {'row_count': 3, 'column_count': 4},
+            format='json',
+        )
+        self.assertEqual(grow.status_code, 200)
+        empty.refresh_from_db()
+        self.assertEqual(empty.column_index, 3)
+
     def test_employee_cannot_create_floor(self):
         self.client.force_authenticate(user=self.employee)
         res = self.client.post(
@@ -626,3 +667,79 @@ class FloorMapViewTests(TestCase):
             format='json',
         )
         self.assertEqual(res.status_code, 403)
+
+
+class ItemImageUploadTests(TestCase):
+    def setUp(self):
+        from io import BytesIO
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image as PilImage
+
+        admin_role, _ = Role.objects.get_or_create(code='ADMIN', defaults={'name': 'Administrator'})
+        self.admin = User.objects.create_user(username='img_admin', password='pass12345', role=admin_role)
+        cat = Category.objects.create(code='IMG', name='Img Cat')
+        self.item = Item.objects.create(
+            item_code='IMG-1', name='Image Item', category=cat, inventory_type='BULK'
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.admin)
+
+        buf = BytesIO()
+        PilImage.new('RGB', (8, 8), color=(20, 40, 60)).save(buf, format='PNG')
+        self.png = SimpleUploadedFile('dot.png', buf.getvalue(), content_type='image/png')
+        self.bogus = SimpleUploadedFile('x.bin', b'not-an-image', content_type='application/octet-stream')
+
+    def test_upload_clear_and_signed_media(self):
+        from io import BytesIO
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image as PilImage
+
+        from inventory.media_urls import sign_media_name
+
+        up = self.client.post(
+            f'/api/inventory/items/{self.item.id}/image/',
+            {'image': self.png},
+            format='multipart',
+        )
+        self.assertEqual(up.status_code, 200)
+        self.assertTrue(up.data.get('image_url'))
+        self.assertIn('sig=', up.data['image_url'])
+
+        # Clear before opening the file via /media/ (Windows can lock open files).
+        cleared = self.client.post(
+            f'/api/inventory/items/{self.item.id}/image/?clear=1',
+            {'clear': True},
+            format='json',
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.content)
+        self.assertIsNone(cleared.data.get('image_url'))
+        self.item.refresh_from_db()
+        self.assertFalse(bool(self.item.image))
+
+        buf = BytesIO()
+        PilImage.new('RGB', (8, 8), color=(9, 9, 9)).save(buf, format='PNG')
+        png2 = SimpleUploadedFile('dot2.png', buf.getvalue(), content_type='image/png')
+        up2 = self.client.post(
+            f'/api/inventory/items/{self.item.id}/image/',
+            {'image': png2},
+            format='multipart',
+        )
+        self.assertEqual(up2.status_code, 200)
+        self.item.refresh_from_db()
+        media_path = self.item.image.name
+        bare = self.client.get(f'/media/{media_path}')
+        self.assertEqual(bare.status_code, 404)
+        ok = self.client.get(f'/media/{media_path}', {'sig': sign_media_name(media_path)})
+        self.assertEqual(ok.status_code, 200)
+        # Fully consume streaming FileResponse so the file handle closes on Windows.
+        b''.join(ok.streaming_content)
+
+    def test_rejects_non_image_bytes(self):
+        bad = self.client.post(
+            f'/api/inventory/items/{self.item.id}/image/',
+            {'image': self.bogus},
+            format='multipart',
+        )
+        self.assertEqual(bad.status_code, 400)
