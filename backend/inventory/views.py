@@ -82,6 +82,12 @@ class InventoryListView(APIView):
         if unit_status in ('AVAILABLE', 'WITHDRAWN', 'FAILED', 'RESERVED'):
             unit_qs = unit_qs.filter(status=unit_status)
 
+        # Match dashboard low-stock alerts: batches with 0 < available_qty <= 10.
+        low_stock = (request.query_params.get('low_stock') or '').strip().lower()
+        if low_stock in ('1', 'true', 'yes'):
+            batch_qs = batch_qs.filter(available_qty__gt=0, available_qty__lte=10)
+            inv_type = 'BATCH'
+
         if allocated in ('1', 'true', 'yes', '0', 'false', 'no'):
             want_alloc = allocated in ('1', 'true', 'yes')
             batch_on_rack = Exists(

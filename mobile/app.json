@@ -48,7 +48,7 @@
     ],
     "extra": {
       "apiUrl": "https://mmt.labxco.cloud/api",
-      "preferRemoteApiInDev": false,
+      "preferRemoteApiInDev": true,
       "eas": {
         "projectId": "39dd6915-5ca0-4606-9d65-d6bd40686771"
       }
