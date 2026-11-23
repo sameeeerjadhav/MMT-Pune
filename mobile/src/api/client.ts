@@ -60,9 +60,16 @@ async function refreshAccessToken(): Promise<string | null> {
 }
 
 api.interceptors.request.use(async (config) => {
-  const token = await storage.getItem('accessToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  try {
+    const token = await Promise.race([
+      storage.getItem('accessToken'),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]);
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  } catch {
+    // Proceed without auth header rather than hanging the request.
   }
   return config;
 });

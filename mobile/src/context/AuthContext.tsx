@@ -41,6 +41,11 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+function isAuthRejected(err: unknown): boolean {
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  return status === 401 || status === 403;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,39 +57,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    let settled = false;
+
+    const finish = () => {
+      if (!cancelled && !settled) {
+        settled = true;
+        setLoading(false);
+      }
+    };
+
+    // Absolute failsafe — never leave BootLoading up forever.
+    const failsafe = setTimeout(finish, 12000);
 
     (async () => {
       try {
-        // Wait for SecureStore — never treat a slow read as "logged out".
-        // On hard hang, timeout leaves tokens in place for the next cold start.
         let token: string | null = null;
         try {
-          token = await withTimeout(storage.getItem('accessToken'), 10000, 'secure_store');
+          token = await withTimeout(storage.getItem('accessToken'), 4000, 'secure_store');
         } catch {
-          if (!cancelled) setLoading(false);
+          finish();
           return;
         }
         if (cancelled) return;
 
         if (!token) {
-          setLoading(false);
+          finish();
           return;
         }
 
-        // Keep boot spinner until profile settles so Login does not flash.
-        const { data } = await withTimeout(authApi.profile(), 15000, 'profile');
-        if (!cancelled) setUser(data);
-      } catch {
-        await storage.deleteItem('accessToken');
-        await storage.deleteItem('refreshToken');
-        if (!cancelled) setUser(null);
+        try {
+          const { data } = await withTimeout(authApi.profile(), 8000, 'profile');
+          if (!cancelled) setUser(data);
+        } catch (err) {
+          // Only wipe session on real auth rejection. Timeouts/network keep tokens
+          // so the next cold start (or login retry after reload) can succeed.
+          if (isAuthRejected(err)) {
+            try {
+              await storage.deleteItem('accessToken');
+              await storage.deleteItem('refreshToken');
+            } catch {
+              // ignore
+            }
+          }
+          if (!cancelled) setUser(null);
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        finish();
+        clearTimeout(failsafe);
       }
     })();
 
     return () => {
       cancelled = true;
+      clearTimeout(failsafe);
     };
   }, []);
 
