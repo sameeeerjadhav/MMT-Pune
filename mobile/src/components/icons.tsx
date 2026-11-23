@@ -17,6 +17,34 @@ export function SearchIcon({ size = 24, color = colors.navy }: IconProps) {
   );
 }
 
+export function BellIcon({ size = 24, color = colors.navy }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M6 9.5a6 6 0 0 1 12 0c0 4 1.5 5.5 1.5 5.5H4.5S6 13.5 6 9.5z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+      <Path d="M10 18.5a2 2 0 0 0 4 0" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function PinIcon({ size = 24, color = colors.navy }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 21s6-5.2 6-11a6 6 0 1 0-12 0c0 5.8 6 11 6 11z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+      <Circle cx="12" cy="10" r="2.2" stroke={color} strokeWidth={1.8} />
+    </Svg>
+  );
+}
+
 /** Funnel / filter glyph for search-bar filter dropdown. */
 export function FilterIcon({ size = 24, color = colors.navy }: IconProps) {
   return (

@@ -199,7 +199,20 @@ function MainTabs() {
               tabBarButton: show ? undefined : () => null,
               tabBarItemStyle: show ? undefined : { display: 'none' },
               tabBarIcon: ({ focused, color }) => (
-                <TabGlyph name={tab.name} focused={focused} color={color} size={22} />
+                <View
+                  style={
+                    focused
+                      ? {
+                          backgroundColor: colors.primarySoft,
+                          borderRadius: 12,
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                        }
+                      : undefined
+                  }
+                >
+                  <TabGlyph name={tab.name} focused={focused} color={color} size={22} />
+                </View>
               ),
             }}
           />

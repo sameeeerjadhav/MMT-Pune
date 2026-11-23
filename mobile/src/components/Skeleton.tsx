@@ -105,52 +105,46 @@ export function ListSkeleton({
   );
 }
 
-/** Home dashboard placeholder matching hero + tiles. */
+/** Home dashboard placeholder matching light header + metric cards. */
 export function DashboardSkeleton() {
   const insets = useSafeAreaInsets();
   return (
-    <View style={styles.root}>
-      <View style={[styles.hero, { paddingTop: Math.max(insets.top, 12) + 8 }]}>
-        <SkeletonBone width={72} height={12} radius={6} style={{ backgroundColor: 'rgba(255,255,255,0.35)' }} />
+    <View style={[styles.root, { paddingTop: Math.max(insets.top, 10) }]}>
+      <View style={{ paddingHorizontal: spacing.md }}>
+        <SkeletonBone width="48%" height={26} radius={10} />
+        <SkeletonBone width="36%" height={12} style={{ marginTop: 8 }} />
         <SkeletonBone
-          width="62%"
-          height={28}
-          radius={10}
-          style={{ marginTop: 10, backgroundColor: 'rgba(255,255,255,0.4)' }}
+          width="100%"
+          height={48}
+          radius={radius.lg}
+          style={{ marginTop: spacing.md, marginBottom: spacing.md }}
         />
-        <View style={styles.heroMetrics}>
-          {[0, 1, 2].map((i) => (
-            <View key={i} style={styles.heroMetric}>
-              <SkeletonBone width={40} height={18} style={{ backgroundColor: 'rgba(255,255,255,0.4)' }} />
-              <SkeletonBone
-                width={54}
-                height={10}
-                style={{ marginTop: 6, backgroundColor: 'rgba(255,255,255,0.28)' }}
-              />
-            </View>
-          ))}
-        </View>
+      </View>
+      <View style={[styles.tileGrid, { paddingHorizontal: spacing.md }]}>
+        {[0, 1, 2, 3].map((i) => (
+          <View key={i} style={[styles.tile, { width: '48%', minHeight: 100 }]}>
+            <SkeletonBone width="40%" height={12} />
+            <SkeletonBone width="55%" height={22} style={{ marginTop: 10 }} />
+            <SkeletonBone width="70%" height={11} style={{ marginTop: 8 }} />
+          </View>
+        ))}
       </View>
       <View style={styles.body}>
         <SkeletonBone width={96} height={12} style={{ marginBottom: spacing.sm }} />
-        <View style={styles.tileGrid}>
+        <View style={styles.chipRow}>
           {[0, 1, 2, 3].map((i) => (
-            <View key={i} style={styles.tile}>
-              <SkeletonBone width={36} height={36} radius={12} />
-              <SkeletonBone width="70%" height={14} style={{ marginTop: 10 }} />
-              <SkeletonBone width="50%" height={11} style={{ marginTop: 8 }} />
-            </View>
+            <SkeletonBone key={i} width={72} height={78} radius={radius.lg} />
           ))}
         </View>
-        <SkeletonBone width={120} height={12} style={{ marginTop: spacing.md, marginBottom: spacing.sm }} />
         <View style={styles.card}>
-          <SkeletonBone width="40%" height={22} radius={radius.pill} />
-          <SkeletonBone width="90%" height={14} style={{ marginTop: 12 }} />
-          <SkeletonBone width="70%" height={12} style={{ marginTop: 8 }} />
+          <SkeletonBone width="50%" height={16} />
+          <SkeletonBone width="100%" height={10} radius={5} style={{ marginTop: 12 }} />
+          <SkeletonBone width="70%" height={12} style={{ marginTop: 10 }} />
         </View>
         <View style={styles.card}>
-          <SkeletonBone width="55%" height={14} />
-          <SkeletonBone width="40%" height={12} style={{ marginTop: 10 }} />
+          <SkeletonBone width="40%" height={14} />
+          <SkeletonBone width="90%" height={14} style={{ marginTop: 12 }} />
+          <SkeletonBone width="70%" height={12} style={{ marginTop: 8 }} />
         </View>
       </View>
     </View>
