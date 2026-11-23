@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -121,6 +121,7 @@ function sortRowsClient(rows: any[], ordering: SortKey) {
 
 export default function InventoryListScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
   const { user } = useAuth();
   // Filters/sort are for all warehouse roles (employee, supervisor, admin).
   const canManage = canAccess(user?.role, 'manageMasterData');
@@ -134,15 +135,68 @@ export default function InventoryListScreen() {
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+  const [lowStockOnly, setLowStockOnly] = useState(false);
   const hasRows = useRef(false);
+  const appliedSearchKey = useRef('');
+
+  // Optional deep-link from dashboard (search / QA / low-stock / reset).
+  useFocusEffect(
+    useCallback(() => {
+      const nextQ = typeof route.params?.q === 'string' ? route.params.q.trim() : '';
+      const testing = route.params?.testing;
+      const lowStock = route.params?.lowStock;
+      const resetFilters = route.params?.resetFilters;
+      const key = `${nextQ}|${testing || ''}|${lowStock || ''}|${resetFilters || ''}|${route.params?.focusSearch ?? ''}`;
+      if (!route.params?.focusSearch && !nextQ && !testing && !lowStock && !resetFilters) return;
+      if (key === appliedSearchKey.current) return;
+      appliedSearchKey.current = key;
+
+      if (nextQ) setQ(nextQ);
+
+      if (resetFilters) {
+        setLowStockOnly(false);
+        setApplied(EMPTY_FILTERS);
+        setDraft(EMPTY_FILTERS);
+        return;
+      }
+
+      if (testing === 'PENDING' || testing === 'PASSED' || testing === 'FAILED') {
+        setLowStockOnly(false);
+        const next = { ...EMPTY_FILTERS, testing };
+        setApplied(next);
+        setDraft(next);
+        return;
+      }
+
+      // Low-stock deep-link: batches with 0 < qty ≤ 10 (matches dashboard alerts).
+      if (lowStock === '1') {
+        setLowStockOnly(true);
+        const next = { ...EMPTY_FILTERS, stockType: 'BATCH' as StockType };
+        setApplied(next);
+        setDraft(next);
+      }
+    }, [
+      route.params?.q,
+      route.params?.testing,
+      route.params?.lowStock,
+      route.params?.resetFilters,
+      route.params?.focusSearch,
+    ])
+  );
 
   const filtersActive = Boolean(
     applied.stockType ||
       applied.testing ||
       applied.allocated ||
+      lowStockOnly ||
       applied.ordering !== DEFAULT_ORDERING
   );
-  const activeSummary = useMemo(() => summarizeFilters(applied), [applied]);
+  const activeSummary = useMemo(() => {
+    const base = summarizeFilters(applied);
+    if (!lowStockOnly) return base;
+    return [base, 'Low stock ≤10'].filter(Boolean).join(' · ');
+  }, [applied, lowStockOnly]);
 
   const openFilters = () => {
     setDraft(applied);
@@ -160,11 +214,16 @@ export default function InventoryListScreen() {
   };
 
   const applyFilters = () => {
+    // Manual filter sheet replaces the dashboard low-stock deep-link mode.
+    setLowStockOnly(false);
     setApplied(draft);
     setFiltersOpen(false);
   };
 
-  const clearDraft = () => setDraft({ ...EMPTY_FILTERS });
+  const clearDraft = () => {
+    setLowStockOnly(false);
+    setDraft({ ...EMPTY_FILTERS });
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -182,13 +241,22 @@ export default function InventoryListScreen() {
               testing_status: applied.testing || undefined,
               allocated: applied.allocated || undefined,
               ordering: applied.ordering || undefined,
+              low_stock: lowStockOnly ? '1' : undefined,
               limit: 80,
             },
             { signal: controller.signal }
           );
           if (controller.signal.aborted) return;
-          const batches = (data.batches || []).map((b: any) => ({ kind: 'BATCH', ...b }));
-          const units = (data.units || []).map((u: any) => ({ kind: 'UNIT', ...u }));
+          let batches = (data.batches || []).map((b: any) => ({ kind: 'BATCH', ...b }));
+          let units = (data.units || []).map((u: any) => ({ kind: 'UNIT', ...u }));
+          // Client safety net if an older API ignores low_stock=.
+          if (lowStockOnly) {
+            batches = batches.filter((b: any) => {
+              const qty = Number(b.available_qty);
+              return Number.isFinite(qty) && qty > 0 && qty <= 10;
+            });
+            units = [];
+          }
           // Client merge + sort so mixed batch/unit lists stay ordered when API returns both.
           setRows(sortRowsClient([...batches, ...units], applied.ordering));
           hasRows.current = true;
@@ -213,6 +281,8 @@ export default function InventoryListScreen() {
       applied.testing,
       applied.allocated,
       applied.ordering,
+      lowStockOnly,
+      reloadKey,
     ])
   );
 
@@ -222,9 +292,10 @@ export default function InventoryListScreen() {
       <ErrorState
         message={error}
         onRetry={() => {
+          setError('');
           hasRows.current = false;
           setLoading(true);
-          setApplied((a) => ({ ...a }));
+          setReloadKey((k) => k + 1);
         }}
       />
     );

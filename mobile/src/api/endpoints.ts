@@ -29,6 +29,7 @@ export const inventoryApi = {
       status?: string;
       allocated?: string;
       ordering?: string;
+      low_stock?: string;
       limit?: number;
     },
     config?: { signal?: AbortSignal }
