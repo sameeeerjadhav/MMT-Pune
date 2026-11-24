@@ -156,6 +156,19 @@ export const barcodeApi = {
   labelPdfPath: (value: string) => `/barcodes/${encodeURIComponent(value)}/label.pdf`,
   printLog: (value: string, payload?: unknown) =>
     api.post(`/barcodes/${encodeURIComponent(value)}/print-log/`, payload || {}),
+  printCommands: (value: string, printerId: number) =>
+    api.get(`/barcodes/${encodeURIComponent(value)}/print-commands/`, {
+      params: { printer_id: printerId },
+    }),
+};
+
+export const printersApi = {
+  list: (activeOnly = false) =>
+    api.get('/printers/', { params: activeOnly ? { active: 1 } : undefined }),
+  create: (payload: Record<string, unknown>) => api.post('/printers/', payload),
+  update: (id: number, payload: Record<string, unknown>) => api.patch(`/printers/${id}/`, payload),
+  remove: (id: number) => api.delete(`/printers/${id}/`),
+  testLabel: (id: number) => api.get(`/printers/${id}/test-label/`),
 };
 
 export const healthApi = {

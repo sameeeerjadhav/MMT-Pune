@@ -18,7 +18,11 @@ from barcodes.views import (
     BarcodeDetailView,
     BarcodeLabelImageView,
     BarcodeLabelPdfView,
+    BarcodePrintCommandsView,
     GenerateBarcodeView,
+    PrinterDetailView,
+    PrinterListCreateView,
+    PrinterTestLabelView,
     PrintLogView,
 )
 from grn.views import GRNDetailView, GRNGenerateBarcodesView, GRNImportView, GRNListCreateView
@@ -99,7 +103,11 @@ urlpatterns = [
     path('api/barcodes/<str:value>/label.png', BarcodeLabelImageView.as_view()),
     path('api/barcodes/<str:value>/label.pdf', BarcodeLabelPdfView.as_view()),
     path('api/barcodes/<str:value>/', BarcodeDetailView.as_view()),
+    path('api/barcodes/<str:value>/print-commands/', BarcodePrintCommandsView.as_view()),
     path('api/barcodes/<str:value>/print-log/', PrintLogView.as_view()),
+    path('api/printers/', PrinterListCreateView.as_view()),
+    path('api/printers/<int:pk>/', PrinterDetailView.as_view()),
+    path('api/printers/<int:pk>/test-label/', PrinterTestLabelView.as_view()),
     path('api/warehouses/', WarehouseListCreateView.as_view()),
     path('api/warehouses/<int:pk>/', WarehouseDetailView.as_view()),
     path('api/floors/', FloorListCreateView.as_view()),

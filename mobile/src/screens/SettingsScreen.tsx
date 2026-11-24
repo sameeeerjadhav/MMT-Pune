@@ -8,7 +8,7 @@ import { Badge, Button, Card, Muted, Screen, SectionLabel, Subtitle } from '../c
 import { PageHeader } from '../components/PageHeader';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { activeScanner } from '../services/hardware/scanner';
-import { activePrinter } from '../services/hardware/printer';
+import { PrinterManager } from '../components/PrinterManager';
 import { colors, fonts } from '../theme/tokens';
 import { roleLabel } from '../utils/roles';
 
@@ -17,7 +17,6 @@ export default function SettingsScreen() {
   const scrollPad = useTabScrollPadding(28);
   const [apiStatus, setApiStatus] = useState('checking...');
   const [scannerStatus, setScannerStatus] = useState('...');
-  const [printerStatus, setPrinterStatus] = useState('...');
 
   useEffect(() => {
     healthApi
@@ -25,7 +24,6 @@ export default function SettingsScreen() {
       .then(() => setApiStatus('online'))
       .catch(() => setApiStatus('offline'));
     activeScanner.getStatus().then(setScannerStatus);
-    activePrinter.getStatus().then(setPrinterStatus);
   }, []);
 
   return (
@@ -65,9 +63,11 @@ export default function SettingsScreen() {
           <Muted>Device adapters</Muted>
         </View>
         <Text style={{ color: colors.text }}>Scanner: {scannerStatus}</Text>
-        <Text style={{ color: colors.text }}>Printer: {printerStatus}</Text>
-        <Muted>Camera/manual for demo. Zebra stubs are not hardware-tested.</Muted>
+        <Muted>Camera/manual for demo scanning.</Muted>
       </Card>
+
+      <SectionLabel>Printing</SectionLabel>
+      <PrinterManager />
 
       <Button label="Sign out" variant="danger" onPress={logout} />
       </ScrollView>

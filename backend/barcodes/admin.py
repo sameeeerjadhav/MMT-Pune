@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from barcodes.models import Barcode, PrintLog
+from barcodes.models import Barcode, Printer, PrintLog
 
 
 @admin.register(Barcode)
@@ -14,3 +14,10 @@ class BarcodeAdmin(admin.ModelAdmin):
 class PrintLogAdmin(admin.ModelAdmin):
     list_display = ('barcode', 'user', 'printer', 'created_at')
     search_fields = ('barcode__value',)
+
+
+@admin.register(Printer)
+class PrinterAdmin(admin.ModelAdmin):
+    list_display = ('name', 'language', 'host', 'port', 'label_width_mm', 'label_height_mm', 'is_active')
+    list_filter = ('language', 'is_active')
+    search_fields = ('name', 'host')

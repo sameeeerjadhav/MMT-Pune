@@ -9,6 +9,7 @@ import { Badge, Button, Card, ErrorState, Muted, Screen, Subtitle } from '../com
 import { DetailSkeleton } from '../components/Skeleton';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { downloadOrBuildBarcodePdf } from '../utils/barcodePdf';
+import { PrintLabelPanel } from '../components/PrintLabelPanel';
 import { colors, radius } from '../theme/tokens';
 import { canAccess } from '../utils/roles';
 
@@ -337,6 +338,7 @@ export default function BatchDetailScreen({ route, navigation }: any) {
           ) : (
             <Muted>Label image unavailable</Muted>
           )}
+          {batch.barcode_value ? <PrintLabelPanel barcodeValue={batch.barcode_value} /> : null}
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <View style={{ flex: 1 }}>
               <Button
