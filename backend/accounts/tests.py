@@ -285,3 +285,133 @@ class StaffUserAdminTests(TestCase):
         self.assertEqual(promote.status_code, 400)
         self.admin.refresh_from_db()
         self.assertFalse(self.admin.is_superuser)
+
+
+class ProfileSelfEditTests(TestCase):
+    def setUp(self):
+        roles = User.objects.ensure_default_roles()
+        # A secondary admin (not the main admin) must also be able to edit their own details.
+        self.admin = User.objects.create_user(
+            username='self_admin',
+            password='pass12345',
+            role=roles['ADMIN'],
+            is_staff=True,
+            first_name='Old',
+            last_name='Name',
+            employee_id='ADM-1',
+        )
+        self.employee = User.objects.create_user(
+            username='self_emp',
+            password='pass12345',
+            role=roles['WAREHOUSE_EMPLOYEE'],
+            employee_id='EMP-9',
+            email='emp@example.com',
+        )
+        self.client = APIClient()
+
+    def test_requires_authentication(self):
+        res = self.client.patch('/api/auth/profile/', {'first_name': 'X'}, format='json')
+        self.assertEqual(res.status_code, 401)
+
+    def test_admin_edits_own_details(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.patch(
+            '/api/auth/profile/',
+            {
+                'first_name': 'Asha',
+                'last_name': 'Patil',
+                'email': 'asha@example.com',
+                'username': 'asha_admin',
+                'employee_id': 'ADM-77',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.first_name, 'Asha')
+        self.assertEqual(self.admin.last_name, 'Patil')
+        self.assertEqual(self.admin.email, 'asha@example.com')
+        self.assertEqual(self.admin.username, 'asha_admin')
+        self.assertEqual(self.admin.employee_id, 'ADM-77')
+        self.assertEqual(res.data['role'], 'ADMIN')
+
+    def test_profile_patch_cannot_change_role_or_flags(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.patch(
+            '/api/auth/profile/',
+            {'first_name': 'Asha', 'role': 'WAREHOUSE_EMPLOYEE', 'is_superuser': True, 'is_active': False},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.role_code, 'ADMIN')
+        self.assertFalse(self.admin.is_superuser)
+        self.assertTrue(self.admin.is_active)
+
+    def test_employee_can_edit_name_and_email_but_not_username_or_employee_id(self):
+        self.client.force_authenticate(user=self.employee)
+        ok = self.client.patch(
+            '/api/auth/profile/', {'first_name': 'Ravi', 'email': 'ravi@example.com'}, format='json'
+        )
+        self.assertEqual(ok.status_code, 200)
+        self.assertEqual(ok.data['first_name'], 'Ravi')
+        for field, value in (('username', 'hacker'), ('employee_id', 'ADMIN')):
+            res = self.client.patch('/api/auth/profile/', {field: value}, format='json')
+            self.assertEqual(res.status_code, 400, field)
+        self.employee.refresh_from_db()
+        self.assertEqual(self.employee.username, 'self_emp')
+        self.assertEqual(self.employee.employee_id, 'EMP-9')
+
+    def test_unchanged_admin_only_fields_are_accepted_for_employee(self):
+        self.client.force_authenticate(user=self.employee)
+        res = self.client.patch(
+            '/api/auth/profile/',
+            {'username': 'self_emp', 'employee_id': 'EMP-9', 'first_name': 'Same'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+
+    def test_rejects_duplicate_username_and_email(self):
+        self.client.force_authenticate(user=self.admin)
+        dup_username = self.client.patch('/api/auth/profile/', {'username': 'SELF_EMP'}, format='json')
+        self.assertEqual(dup_username.status_code, 400)
+        dup_email = self.client.patch('/api/auth/profile/', {'email': 'EMP@example.com'}, format='json')
+        self.assertEqual(dup_email.status_code, 400)
+
+    def test_password_change_requires_correct_current_password(self):
+        self.client.force_authenticate(user=self.admin)
+        wrong = self.client.patch(
+            '/api/auth/profile/',
+            {'current_password': 'nope', 'new_password': 'brandnew1'},
+            format='json',
+        )
+        self.assertEqual(wrong.status_code, 400)
+        missing = self.client.patch('/api/auth/profile/', {'new_password': 'brandnew1'}, format='json')
+        self.assertEqual(missing.status_code, 400)
+
+        ok = self.client.patch(
+            '/api/auth/profile/',
+            {'current_password': 'pass12345', 'new_password': 'brandnew1'},
+            format='json',
+        )
+        self.assertEqual(ok.status_code, 200)
+        self.assertNotIn('password', ok.data)
+        login = APIClient().post(
+            '/api/auth/login/', {'username': 'self_admin', 'password': 'brandnew1'}, format='json'
+        )
+        self.assertEqual(login.status_code, 200)
+
+    def test_self_edit_is_audit_logged_without_password(self):
+        from audit.models import AuditLog
+
+        self.client.force_authenticate(user=self.admin)
+        self.client.patch(
+            '/api/auth/profile/',
+            {'first_name': 'Asha', 'current_password': 'pass12345', 'new_password': 'brandnew1'},
+            format='json',
+        )
+        log = AuditLog.objects.filter(user=self.admin, entity_type='User', action='UPDATE').latest('id')
+        self.assertTrue(log.details['self_edit'])
+        self.assertEqual(log.details['fields'], ['first_name'])
+        self.assertTrue(log.details['password_changed'])
+        self.assertNotIn('brandnew1', str(log.details))
