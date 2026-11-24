@@ -55,13 +55,9 @@ class ItemSerializer(serializers.ModelSerializer):
         read_only_fields = ('image',)
 
     def get_image_url(self, obj):
-        if not obj.image:
-            return None
-        request = self.context.get('request')
-        url = obj.image.url
-        if request is not None:
-            return request.build_absolute_uri(url)
-        return url
+        from inventory.media_urls import absolute_media_url
+
+        return absolute_media_url(self.context.get('request'), obj.image)
 
     def _resolve_category(self, validated_data):
         code_input = validated_data.pop('category_code_input', None)
@@ -111,6 +107,30 @@ class StockAllocationSerializer(serializers.ModelSerializer):
         )
 
 
+class ItemListSerializer(serializers.ModelSerializer):
+    """Lean item payload for inventory search/list rows."""
+
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Item
+        fields = (
+            'id',
+            'item_code',
+            'name',
+            'inventory_type',
+            'uom',
+            'image_url',
+            'updated_at',
+            'is_active',
+        )
+
+    def get_image_url(self, obj):
+        from inventory.media_urls import absolute_media_url
+
+        return absolute_media_url(self.context.get('request'), obj.image)
+
+
 class InventoryBatchSerializer(serializers.ModelSerializer):
     item = ItemSerializer(read_only=True)
     barcode_value = serializers.CharField(source='barcode.value', read_only=True)
@@ -135,9 +155,106 @@ class InventoryUnitSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class InventoryBatchListSerializer(serializers.ModelSerializer):
+    """Fast list/search row — no nested allocations or label blobs."""
+
+    item = ItemListSerializer(read_only=True)
+    barcode_value = serializers.CharField(source='barcode.value', read_only=True)
+    grn_number = serializers.CharField(source='grn_line.grn.grn_number', read_only=True)
+
+    class Meta:
+        model = InventoryBatch
+        fields = (
+            'id',
+            'batch_code',
+            'item',
+            'received_qty',
+            'available_qty',
+            'withdrawn_qty',
+            'reserved_qty',
+            'testing_status',
+            'received_at',
+            'barcode_value',
+            'grn_number',
+        )
+
+
+class InventoryUnitListSerializer(serializers.ModelSerializer):
+    item = ItemListSerializer(read_only=True)
+    barcode_value = serializers.CharField(source='barcode.value', read_only=True)
+    grn_number = serializers.CharField(source='grn_line.grn.grn_number', read_only=True)
+
+    class Meta:
+        model = InventoryUnit
+        fields = (
+            'id',
+            'unit_code',
+            'item',
+            'status',
+            'testing_status',
+            'received_at',
+            'barcode_value',
+            'grn_number',
+        )
+
+
+def _position_label(position) -> str | None:
+    if position is None:
+        return None
+    try:
+        shelf = position.shelf
+        rack = shelf.rack
+        warehouse = rack.warehouse
+        return f'{warehouse.code}/{rack.code}/{shelf.code}/{position.code}'
+    except Exception:
+        return None
+
+
 class InventoryTransactionSerializer(serializers.ModelSerializer):
-    user_name = serializers.CharField(source='user.get_full_name', read_only=True)
+    user_name = serializers.SerializerMethodField()
+    from_location = serializers.SerializerMethodField()
+    to_location = serializers.SerializerMethodField()
+    display_type = serializers.SerializerMethodField()
 
     class Meta:
         model = InventoryTransaction
-        fields = '__all__'
+        fields = (
+            'id',
+            'type',
+            'display_type',
+            'batch',
+            'unit',
+            'quantity',
+            'purpose',
+            'from_position',
+            'to_position',
+            'from_location',
+            'to_location',
+            'withdrawal',
+            'transfer',
+            'user',
+            'user_name',
+            'notes',
+            'override_reason',
+            'metadata',
+            'created_at',
+        )
+
+    def get_user_name(self, obj):
+        user = obj.user
+        if not user:
+            return None
+        name = (user.get_full_name() or '').strip()
+        return name or getattr(user, 'username', None)
+
+    def get_from_location(self, obj):
+        return _position_label(obj.from_position)
+
+    def get_to_location(self, obj):
+        return _position_label(obj.to_position)
+
+    def get_display_type(self, obj):
+        meta = obj.metadata or {}
+        if obj.type == InventoryTransaction.Type.ADJUST and meta.get('action') == 'DEALLOCATE':
+            return 'DEALLOCATE'
+        return obj.type

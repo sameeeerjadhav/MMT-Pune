@@ -1,17 +1,24 @@
 import React, { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { reportsApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { ChartIcon } from '../components/icons';
 import { Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle } from '../components/ui';
-import { colors } from '../theme/tokens';
+import { PageHeader } from '../components/PageHeader';
+import { colors, fonts } from '../theme/tokens';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { canAccess } from '../utils/roles';
 
 function Row({ children }: { children: React.ReactNode }) {
   return (
-    <View style={{ borderBottomWidth: 1, borderBottomColor: '#E5E7EB', paddingVertical: 8 }}>
+    <View
+      style={{
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.borderSoft,
+        paddingVertical: 8,
+      }}
+    >
       {children}
     </View>
   );
@@ -28,7 +35,7 @@ function renderReport(title: string, data: any) {
         <Subtitle>Bulk batches ({batches.length})</Subtitle>
         {batches.slice(0, 25).map((b: any) => (
           <Row key={`b-${b.id}`}>
-            <Text style={{ fontWeight: '600' }}>{b.batch_code}</Text>
+            <Text style={{ fontFamily: fonts.uiSemi }}>{b.batch_code}</Text>
             <Muted>
               {b.item__name} · avail {b.available_qty} / recv {b.received_qty}
             </Muted>
@@ -37,7 +44,7 @@ function renderReport(title: string, data: any) {
         <Subtitle>Units ({units.length})</Subtitle>
         {units.slice(0, 25).map((u: any) => (
           <Row key={`u-${u.id}`}>
-            <Text style={{ fontWeight: '600' }}>{u.unit_code}</Text>
+            <Text style={{ fontFamily: fonts.uiSemi }}>{u.unit_code}</Text>
             <Muted>
               {u.item__name} · {u.status}
             </Muted>
@@ -54,7 +61,7 @@ function renderReport(title: string, data: any) {
         <Subtitle>GRNs ({rows.length})</Subtitle>
         {rows.map((g: any) => (
           <Row key={g.id}>
-            <Text style={{ fontWeight: '600' }}>{g.grn_number}</Text>
+            <Text style={{ fontFamily: fonts.uiSemi }}>{g.grn_number}</Text>
             <Muted>
               {g.external_system} · {g.vendor__name || '—'} · {String(g.received_date).slice(0, 10)} · {g.status}
             </Muted>
@@ -71,7 +78,7 @@ function renderReport(title: string, data: any) {
         <Subtitle>Withdrawals ({rows.length})</Subtitle>
         {rows.map((w: any) => (
           <Row key={w.id}>
-            <Text style={{ fontWeight: '600' }}>
+            <Text style={{ fontFamily: fonts.uiSemi }}>
               #{w.id} · {w.purpose}
             </Text>
             <Muted>
@@ -85,7 +92,7 @@ function renderReport(title: string, data: any) {
             {(w.lines || []).slice(0, 3).map((l: any, idx: number) => (
               <Muted key={`${w.id}-l-${idx}`}>
                 · {l.batch_code || l.unit_code} · {l.item_name || 'item'} · qty {l.quantity}
-                {l.fifo_override ? ' · OVERRIDE' : ''}
+                {l.fifo_override ? ' · age override' : ''}
               </Muted>
             ))}
           </Row>
@@ -101,7 +108,7 @@ function renderReport(title: string, data: any) {
         <Subtitle>Occupied positions ({rows.length})</Subtitle>
         {rows.map((r: any, idx: number) => (
           <Row key={`${r.warehouse}-${r.rack}-${r.shelf}-${r.position}-${idx}`}>
-            <Text style={{ fontWeight: '600' }}>
+            <Text style={{ fontFamily: fonts.uiSemi }}>
               {r.warehouse}/{r.rack}/{r.shelf}/{r.position}
             </Text>
             <Muted>
@@ -113,15 +120,15 @@ function renderReport(title: string, data: any) {
     );
   }
 
-  if (title === 'FIFO') {
+  if (title === 'Older stock') {
     const rows = Array.isArray(data) ? data : data.alerts || [];
     return (
       <Card>
-        <Subtitle>FIFO risk alerts ({rows.length})</Subtitle>
-        {rows.length === 0 ? <Muted>No active FIFO conflicts</Muted> : null}
+        <Subtitle>Older stock alerts ({rows.length})</Subtitle>
+        {rows.length === 0 ? <Muted>No active older-stock conflicts</Muted> : null}
         {rows.map((a: any, idx: number) => (
           <Row key={`${a.newer_batch}-${idx}`}>
-            <Text style={{ fontWeight: '600', color: colors.danger }}>{a.item}</Text>
+            <Text style={{ fontFamily: fonts.uiSemi, color: colors.danger }}>{a.item}</Text>
             <Muted>
               Newer {a.newer_batch} ({String(a.newer_date).slice(0, 10)}) while older {a.older_batch} still available
             </Muted>
@@ -187,10 +194,11 @@ export default function ReportsScreen() {
   return (
     <Screen>
       <ScrollView contentContainerStyle={{ paddingBottom: scrollPad }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <ChartIcon size={22} color={colors.primaryDark} />
-          <Muted>Live aggregates from PostgreSQL via the API.</Muted>
-        </View>
+        <PageHeader
+          title="Reports"
+          safeTop
+          right={<ChartIcon size={22} color={colors.primaryDark} />}
+        />
         <Button label="Current stock" onPress={() => run('Stock', reportsApi.stock)} />
         <Button label="GRN report" variant="secondary" onPress={() => run('GRN', reportsApi.grn)} />
         <Button label="Withdrawals" variant="secondary" onPress={() => run('Withdrawals', reportsApi.withdrawals)} />
@@ -201,7 +209,11 @@ export default function ReportsScreen() {
           onPress={downloadWithdrawalsPdf}
         />
         <Button label="Rack occupancy" variant="secondary" onPress={() => run('Occupancy', reportsApi.occupancy)} />
-        <Button label="FIFO violations" variant="secondary" onPress={() => run('FIFO', reportsApi.fifo)} />
+        <Button
+          label="Older stock alerts"
+          variant="secondary"
+          onPress={() => run('Older stock', reportsApi.fifo)}
+        />
         {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
         {pdfMsg ? <Muted>{pdfMsg}</Muted> : null}
         {loading ? <LoadingState /> : renderReport(title, data)}

@@ -1,0 +1,9 @@
+{
+  "platforms": ["android", "ios"],
+  "android": {
+    "modules": ["expo.modules.savetodownloads.SaveToDownloadsModule"]
+  },
+  "ios": {
+    "modules": ["SaveToDownloadsModule"]
+  }
+}

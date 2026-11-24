@@ -113,5 +113,30 @@ def label_image_base64(barcode: Barcode) -> str:
     return base64.b64encode(png).decode('ascii')
 
 
+def render_label_pdf_bytes(barcode: Barcode) -> bytes:
+    """Single-page PDF of the warehouse barcode label (A6)."""
+    from reportlab.lib.pagesizes import A6
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas as pdf_canvas
+
+    png = render_label_png_bytes(barcode)
+    page_w, page_h = A6
+    buffer = io.BytesIO()
+    c = pdf_canvas.Canvas(buffer, pagesize=A6)
+    img = ImageReader(io.BytesIO(png))
+    iw, ih = img.getSize()
+    max_w = page_w - 24
+    max_h = page_h - 24
+    scale = min(max_w / float(iw), max_h / float(ih), 1.0)
+    draw_w = iw * scale
+    draw_h = ih * scale
+    x = (page_w - draw_w) / 2
+    y = (page_h - draw_h) / 2
+    c.drawImage(img, x, y, width=draw_w, height=draw_h, preserveAspectRatio=True, mask='auto')
+    c.showPage()
+    c.save()
+    return buffer.getvalue()
+
+
 def label_image_content_file(barcode: Barcode) -> ContentFile:
     return ContentFile(render_label_png_bytes(barcode), name=f'{barcode.value}.png')

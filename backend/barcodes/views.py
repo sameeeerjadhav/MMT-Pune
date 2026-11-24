@@ -5,7 +5,12 @@ from rest_framework.views import APIView
 
 from accounts.permissions import IsWarehouseStaff
 from barcodes.models import Barcode, PrintLog
-from barcodes.services import create_barcode, label_image_base64, render_label_png_bytes
+from barcodes.services import (
+    create_barcode,
+    label_image_base64,
+    render_label_pdf_bytes,
+    render_label_png_bytes,
+)
 from config.exceptions import ApiError
 
 
@@ -59,6 +64,22 @@ class BarcodeLabelImageView(APIView):
         png = render_label_png_bytes(barcode)
         response = HttpResponse(png, content_type='image/png')
         response['Content-Disposition'] = f'inline; filename="{barcode.value}.png"'
+        return response
+
+
+class BarcodeLabelPdfView(APIView):
+    """Return a single-page PDF of the warehouse barcode label."""
+
+    permission_classes = [IsWarehouseStaff]
+
+    def get(self, request, value):
+        try:
+            barcode = Barcode.objects.get(value=value)
+        except Barcode.DoesNotExist:
+            raise ApiError('NOT_FOUND', 'Barcode not found', status_code=404)
+        pdf = render_label_pdf_bytes(barcode)
+        response = HttpResponse(pdf, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{barcode.value}-label.pdf"'
         return response
 
 

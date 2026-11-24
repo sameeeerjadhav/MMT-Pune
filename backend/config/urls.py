@@ -1,9 +1,9 @@
-from django.conf import settings
 from django.contrib import admin
 from django.urls import path, re_path
 from django.views.generic import RedirectView
-from django.views.static import serve
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+
+from inventory.media_urls import serve_signed_media
 
 from accounts.views import (
     HealthView,
@@ -17,11 +17,13 @@ from accounts.views import (
 from barcodes.views import (
     BarcodeDetailView,
     BarcodeLabelImageView,
+    BarcodeLabelPdfView,
     GenerateBarcodeView,
     PrintLogView,
 )
 from grn.views import GRNDetailView, GRNGenerateBarcodesView, GRNImportView, GRNListCreateView
 from inventory.views import (
+    AllocationDetailView,
     BatchDetailView,
     CategoryListView,
     DashboardView,
@@ -92,8 +94,10 @@ urlpatterns = [
     path('api/inventory/items/<int:pk>/image/', ItemImageUploadView.as_view()),
     path('api/inventory/scan/<str:barcode>/', ScanBarcodeView.as_view()),
     path('api/inventory/<str:inv_type>/<int:pk>/history/', InventoryHistoryView.as_view()),
+    path('api/allocations/<int:pk>/', AllocationDetailView.as_view()),
     path('api/barcodes/generate/', GenerateBarcodeView.as_view()),
     path('api/barcodes/<str:value>/label.png', BarcodeLabelImageView.as_view()),
+    path('api/barcodes/<str:value>/label.pdf', BarcodeLabelPdfView.as_view()),
     path('api/barcodes/<str:value>/', BarcodeDetailView.as_view()),
     path('api/barcodes/<str:value>/print-log/', PrintLogView.as_view()),
     path('api/warehouses/', WarehouseListCreateView.as_view()),
@@ -124,8 +128,8 @@ urlpatterns = [
     path('api/reports/fifo/', FIFOReportView.as_view()),
 ]
 
-# Serve uploaded media in both DEBUG and production (Dokploy has no separate media CDN).
+# Serve uploaded media with a signed query param (serializers attach ?sig=...).
 # django.conf.urls.static.static() is a no-op when DEBUG=False, so use serve explicitly.
 urlpatterns += [
-    re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
+    re_path(r'^media/(?P<path>.*)$', serve_signed_media),
 ]

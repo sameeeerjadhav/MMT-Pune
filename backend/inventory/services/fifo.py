@@ -27,7 +27,7 @@ def _location_from_obj(obj):
 
 
 def find_older_bulk(item_id: int, received_at, exclude_id: int, *, for_update=False):
-    # Only PASSED older stock blocks FIFO — PENDING is not releasable yet.
+    # Only PASSED older stock blocks withdraw — PENDING is not releasable yet.
     qs = InventoryBatch.objects.filter(
         item_id=item_id,
         available_qty__gt=0,
@@ -113,7 +113,7 @@ def assert_fifo_or_override(*, result, user, override_reason: str):
     if not user.has_role('ADMIN', 'SUPERVISOR'):
         raise ApiError(
             'FORBIDDEN',
-            'Only supervisors or administrators can override FIFO.',
+            'Only supervisors or administrators can override older-stock order.',
             status_code=403,
         )
     return True
