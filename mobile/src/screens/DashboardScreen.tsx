@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   BellIcon,
   ChartIcon,
+  ClipboardIcon,
   CubeIcon,
   DocIcon,
   OutIcon,
@@ -28,6 +29,7 @@ import {
 } from '../components/icons';
 import { ErrorState, Muted } from '../components/ui';
 import { DashboardSkeleton } from '../components/Skeleton';
+import { SyncStatusCard } from '../components/SyncStatusCard';
 import { colors, fonts, radius, shadow, spacing } from '../theme/tokens';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { canAccess, roleLabel } from '../utils/roles';
@@ -158,6 +160,14 @@ export default function DashboardScreen() {
         icon: (c) => <CubeIcon size={22} color={c} />,
       });
     }
+    if (canAccess(role, 'counts')) {
+      items.push({
+        title: 'Count',
+        tab: 'Counts',
+        tone: 'success',
+        icon: (c) => <ClipboardIcon size={22} color={c} />,
+      });
+    }
     return items;
   }, [user?.role]);
 
@@ -186,7 +196,9 @@ export default function DashboardScreen() {
 
   const fifoAlerts = data?.fifo_alerts || [];
   const lowStock = data?.low_stock_alerts || [];
-  const alertCount = fifoAlerts.length + lowStock.length;
+  const stockAlerts = data?.stock_alerts || {};
+  const stockAlertTotal = Number(stockAlerts.total) || 0;
+  const alertCount = fifoAlerts.length + lowStock.length + stockAlertTotal;
   const recentTx = data?.recent_transactions || [];
   const recentWithdrawals = data?.recent_withdrawals || [];
   const available = Number(data?.available_quantity) || 0;
@@ -296,6 +308,10 @@ export default function DashboardScreen() {
           </View>
         </View>
 
+        <View style={{ paddingHorizontal: 16 }}>
+          <SyncStatusCard />
+        </View>
+
         {/* Metric strip — horizontal like the mock */}
         <ScrollView
           horizontal
@@ -334,6 +350,18 @@ export default function DashboardScreen() {
                     })
                 : undefined
             }
+          />
+          <MetricCard
+            label="Reorder / expiry"
+            value={`${stockAlertTotal}`}
+            hint={
+              stockAlertTotal
+                ? `${stockAlerts.low_stock || 0} low · ${(stockAlerts.expired || 0) + (stockAlerts.expiring_soon || 0)} expiry`
+                : 'All clear'
+            }
+            tone="warning"
+            chart="bars"
+            onPress={() => navigation.navigate('Alerts')}
           />
           <MetricCard
             label="Inbound GRN"

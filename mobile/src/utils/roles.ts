@@ -14,7 +14,10 @@ export type AppModule =
   | 'editFloorLayout'
   | 'fifoOverride'
   | 'manageMasterData'
-  | 'manageUsers';
+  | 'manageUsers'
+  | 'counts'
+  | 'alerts'
+  | 'auditLog';
 
 const ALL_STAFF: RoleCode[] = ['ADMIN', 'SUPERVISOR', 'WAREHOUSE_EMPLOYEE'];
 const LEADS: RoleCode[] = ['ADMIN', 'SUPERVISOR'];
@@ -35,6 +38,9 @@ const MODULE_ROLES: Record<AppModule, RoleCode[]> = {
   fifoOverride: LEADS,
   manageMasterData: LEADS,
   manageUsers: ADMIN_ONLY,
+  counts: ALL_STAFF,
+  alerts: ALL_STAFF,
+  auditLog: ADMIN_ONLY,
 };
 
 export function canAccess(role: RoleCode | undefined | null, module: AppModule): boolean {
@@ -78,6 +84,9 @@ export const TAB_ACCESS: Record<string, AppModule | null> = {
   Warehouse: 'warehouse',
   Reports: 'reports',
   Users: 'manageUsers',
+  Counts: 'counts',
+  Alerts: 'alerts',
+  Audit: 'auditLog',
   Settings: 'settings',
   More: null,
 };
@@ -155,6 +164,27 @@ export function moreLinksForRole(role: RoleCode | undefined | null): MoreLink[] 
       subtitle: 'Stock, occupancy, age order, withdrawals',
       tab: 'Reports',
       module: 'reports',
+    },
+    {
+      key: 'counts',
+      title: 'Stock counts',
+      subtitle: 'Count a rack and flag differences from the system',
+      tab: 'Counts',
+      module: 'counts',
+    },
+    {
+      key: 'alerts',
+      title: 'Stock alerts',
+      subtitle: 'Low stock and batches about to expire',
+      tab: 'Alerts',
+      module: 'alerts',
+    },
+    {
+      key: 'audit',
+      title: 'Audit log',
+      subtitle: 'Who changed what, and when',
+      tab: 'Audit',
+      module: 'auditLog',
     },
     {
       key: 'users',

@@ -5,6 +5,7 @@ import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { Button, Card, ErrorState, Muted, Screen, Subtitle } from '../components/ui';
 import { DetailSkeleton } from '../components/Skeleton';
+import { BulkPrintPanel } from '../components/BulkPrintPanel';
 import { canAccess } from '../utils/roles';
 
 export default function GRNDetailScreen({ route, navigation }: any) {
@@ -62,6 +63,7 @@ export default function GRNDetailScreen({ route, navigation }: any) {
             ))}
           </Card>
         ))}
+        <BulkPrintPanel grnId={grn.id} grnNumber={grn.grn_number} />
         {canGenerate ? (
           <Button
             label="Generate missing barcodes"

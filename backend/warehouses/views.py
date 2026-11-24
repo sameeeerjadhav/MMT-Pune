@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsSupervisorOrAdmin, IsWarehouseStaff
+from audit.idempotency import idempotent
 from config.exceptions import ApiError
 from inventory.models import StockAllocation
 from inventory.serializers import StockAllocationSerializer
@@ -430,6 +431,7 @@ class LocationListView(APIView):
 class AllocateView(APIView):
     permission_classes = [IsWarehouseStaff]
 
+    @idempotent
     def post(self, request):
         position_id = request.data.get('position_id')
         if not position_id:
@@ -463,6 +465,7 @@ class DeallocateView(APIView):
 class TransferView(APIView):
     permission_classes = [IsWarehouseStaff]
 
+    @idempotent
     def post(self, request):
         from_position_id = request.data.get('from_position_id')
         to_position_id = request.data.get('to_position_id')

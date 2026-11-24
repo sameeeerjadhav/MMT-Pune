@@ -4,6 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { warehouseApi, inventoryApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { postOrQueue } from '../services/offlineQueue';
 import { RackIcon } from '../components/icons';
 import { PageHeader } from '../components/PageHeader';
 import {
@@ -1074,8 +1075,18 @@ export function AllocateScreen({ route }: any) {
                 payload.batch_id = batchId;
                 payload.quantity = Number(quantity);
               }
-              await warehouseApi.allocate(payload);
-              setMsg('Allocated successfully');
+              const what = unitId ? `unit #${unitId}` : `batch ${selectedBatch?.batch_code ?? `#${batchId}`}`;
+              const res = await postOrQueue({
+                type: 'allocate',
+                path: '/locations/allocate/',
+                body: payload,
+                label: `Put away ${what} to position #${positionId}`,
+              });
+              setMsg(
+                res.queued
+                  ? 'No connection. Saved on this phone and will sync automatically.'
+                  : 'Allocated successfully'
+              );
               setError('');
             } catch (e) {
               setError(getErrorMessage(e));
@@ -1306,8 +1317,17 @@ export function TransferScreen({ route }: any) {
                 payload.batch_id = batchId;
                 payload.quantity = Number(qty);
               }
-              await warehouseApi.transfer(payload);
-              setMsg('Transfer recorded');
+              const res = await postOrQueue({
+                type: 'transfer',
+                path: '/locations/transfer/',
+                body: payload,
+                label: `Move ${unitId ? `unit #${unitId}` : `batch #${batchId}`} from position #${fromId} to #${toId}`,
+              });
+              setMsg(
+                res.queued
+                  ? 'No connection. Saved on this phone and will sync automatically.'
+                  : 'Transfer recorded'
+              );
               setError('');
             } catch (e) {
               setError(getErrorMessage(e));

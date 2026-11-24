@@ -45,6 +45,9 @@ export const inventoryApi = {
   batch: (id: number) => api.get(`/inventory/batches/${id}/`),
   updateBatchTesting: (id: number, testing_status: string) =>
     api.patch(`/inventory/batches/${id}/`, { testing_status }),
+  /** Set (or clear with null) the batch expiry date, `YYYY-MM-DD`. */
+  updateBatchExpiry: (id: number, expiry_date: string | null) =>
+    api.patch(`/inventory/batches/${id}/`, { expiry_date }),
   unit: (id: number) => api.get(`/inventory/units/${id}/`),
   updateUnitTesting: (id: number, testing_status: string) =>
     api.patch(`/inventory/units/${id}/`, { testing_status }),
@@ -95,6 +98,13 @@ export const grnApi = {
   create: (payload: unknown) => api.post('/grns/', payload),
   import: (payload: unknown) => api.post('/grns/import/', payload),
   generateBarcodes: (id: number) => api.post(`/grns/${id}/generate-barcodes/`),
+  /** One page of label commands for every barcode on the GRN. */
+  printCommands: (id: number, printerId: number, offset = 0, limit = 40) =>
+    api.get(`/grns/${id}/print-commands/`, {
+      params: { printer_id: printerId, offset, limit },
+    }),
+  printLog: (id: number, printer: string, values: string[]) =>
+    api.post(`/grns/${id}/print-log/`, { printer, values }),
 };
 
 export const warehouseApi = {
@@ -148,6 +158,38 @@ export const reportsApi = {
   withdrawalsPdfPath: () => `/reports/withdrawals/pdf/`,
   occupancy: () => api.get('/reports/rack-occupancy/'),
   fifo: () => api.get('/reports/fifo/'),
+  /** Spreadsheet-friendly exports (CSV opens in Excel). */
+  csvPath: (name: 'stock' | 'grn' | 'withdrawals' | 'rack-occupancy') => `/reports/${name}.csv`,
+};
+
+export const alertsApi = {
+  get: (days?: number) => api.get('/alerts/', { params: days ? { days } : undefined }),
+};
+
+export type AuditLogParams = {
+  action?: string;
+  entity_type?: string;
+  user_id?: number;
+  date_from?: string;
+  date_to?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export const auditApi = {
+  list: (params?: AuditLogParams) => api.get('/audit-logs/', { params }),
+};
+
+export const countsApi = {
+  list: (params?: { status?: string; rack_id?: number; mine?: string }) =>
+    api.get('/counts/', { params }),
+  start: (rackId: number, notes?: string) => api.post('/counts/', { rack_id: rackId, notes }),
+  detail: (id: number) => api.get(`/counts/${id}/`),
+  removeLine: (id: number, lineId: number) => api.delete(`/counts/${id}/lines/${lineId}/`),
+  submit: (id: number) => api.post(`/counts/${id}/submit/`),
+  varianceCsvPath: (id: number) => `/counts/${id}/variance.csv`,
+  scanPath: (id: number) => `/counts/${id}/scan/`,
 };
 
 export const barcodeApi = {

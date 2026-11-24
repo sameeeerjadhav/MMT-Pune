@@ -6,9 +6,10 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import IsSupervisorOrAdmin
+from accounts.permissions import IsSupervisorOrAdmin, IsWarehouseStaff
 from barcodes.models import Barcode
 from config.exceptions import ApiError
+from inventory.alerts import DEFAULT_EXPIRY_WINDOW_DAYS, MAX_EXPIRY_WINDOW_DAYS, build_alerts
 from inventory.models import (
     Category,
     InventoryBatch,
@@ -18,6 +19,7 @@ from inventory.models import (
     StockAllocation,
 )
 from inventory.serializers import (
+    BatchUpdateSerializer,
     CategorySerializer,
     InventoryBatchSerializer,
     InventoryTransactionSerializer,
@@ -320,10 +322,14 @@ class BatchDetailView(generics.RetrieveAPIView):
 
     def patch(self, request, *args, **kwargs):
         batch = self.get_object()
-        ser = TestingStatusSerializer(data=request.data)
+        ser = BatchUpdateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        batch.testing_status = ser.validated_data['testing_status']
-        batch.save(update_fields=['testing_status', 'updated_at'])
+        update_fields = ['updated_at']
+        for field in ('testing_status', 'expiry_date'):
+            if field in ser.validated_data:
+                setattr(batch, field, ser.validated_data[field])
+                update_fields.append(field)
+        batch.save(update_fields=update_fields)
         return Response(InventoryBatchSerializer(batch, context={'request': request}).data)
 
 
@@ -624,5 +630,24 @@ class DashboardView(APIView):
                     for t in recent_transfers
                 ],
                 'fifo_alerts': fifo_alerts[:10],
+                # Counts only; the Alerts screen loads the full lists from /api/alerts/.
+                'stock_alerts': build_alerts()['summary'],
             }
         )
+
+
+class AlertsView(APIView):
+    """Low-stock items (vs reorder level) and batches that are expired or expiring soon."""
+
+    permission_classes = [IsWarehouseStaff]
+
+    def get(self, request):
+        raw = (request.query_params.get('days') or '').strip()
+        days = DEFAULT_EXPIRY_WINDOW_DAYS
+        if raw:
+            try:
+                days = int(raw)
+            except ValueError:
+                raise ApiError('VALIDATION_ERROR', 'days must be a whole number')
+        days = max(1, min(MAX_EXPIRY_WINDOW_DAYS, days))
+        return Response(build_alerts(days))

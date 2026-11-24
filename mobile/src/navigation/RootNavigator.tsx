@@ -37,6 +37,9 @@ import ReportsScreen from '../screens/ReportsScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import UsersScreen from '../screens/UsersScreen';
 import MoreScreen from '../screens/MoreScreen';
+import AlertsScreen from '../screens/AlertsScreen';
+import AuditLogScreen from '../screens/AuditLogScreen';
+import { CountListScreen, CountSessionScreen } from '../screens/CountsScreens';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -120,6 +123,15 @@ function WithdrawalStack() {
   );
 }
 
+function CountsStack() {
+  return (
+    <Stack.Navigator screenOptions={stackScreenOptions}>
+      <Stack.Screen name="CountList" component={CountListScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="CountSession" component={CountSessionScreen} options={{ title: 'Count' }} />
+    </Stack.Navigator>
+  );
+}
+
 type TabDef = {
   name: string;
   title: string;
@@ -136,6 +148,9 @@ const TAB_DEFS: TabDef[] = [
   { name: 'Warehouse', title: 'Floors', component: WarehouseStack, isStack: true },
   { name: 'Reports', title: 'Reports', component: ReportsScreen },
   { name: 'Users', title: 'Users', component: UsersScreen },
+  { name: 'Counts', title: 'Counts', component: CountsStack, isStack: true },
+  { name: 'Alerts', title: 'Alerts', component: AlertsScreen },
+  { name: 'Audit', title: 'Audit', component: AuditLogScreen },
   { name: 'Settings', title: 'Settings', component: SettingsScreen },
   { name: 'More', title: 'More', component: MoreScreen },
 ];

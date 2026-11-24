@@ -9,6 +9,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { activeScanner } from '../services/hardware/scanner';
 import { PrinterManager } from '../components/PrinterManager';
+import { SyncStatusCard } from '../components/SyncStatusCard';
 import { colors, fonts } from '../theme/tokens';
 import { roleLabel } from '../utils/roles';
 
@@ -55,6 +56,9 @@ export default function SettingsScreen() {
         <Text style={{ color: colors.text }}>{API_BASE_URL}</Text>
         <Muted>Status: {apiStatus}</Muted>
       </Card>
+
+      <SectionLabel>Offline changes</SectionLabel>
+      <SyncStatusCard alwaysShow />
 
       <SectionLabel>Hardware HAL</SectionLabel>
       <Card>

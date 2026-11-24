@@ -5,7 +5,7 @@ import { inventoryApi, barcodeApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { StockLogo } from '../components/icons';
-import { Badge, Button, Card, ErrorState, Muted, Screen, Subtitle } from '../components/ui';
+import { Badge, Button, Card, ErrorState, Input, Muted, Screen, Subtitle } from '../components/ui';
 import { DetailSkeleton } from '../components/Skeleton';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { downloadOrBuildBarcodePdf } from '../utils/barcodePdf';
@@ -51,6 +51,9 @@ export default function BatchDetailScreen({ route, navigation }: any) {
   const [imageBust, setImageBust] = useState(0);
   const [removing, setRemoving] = useState(false);
   const [testingMsg, setTestingMsg] = useState('');
+  const [expiryInput, setExpiryInput] = useState('');
+  const [expiryMsg, setExpiryMsg] = useState('');
+  const [expirySaving, setExpirySaving] = useState(false);
   const [testingSavingStatus, setTestingSavingStatus] = useState<string | null>(null);
 
   const load = async () => {
@@ -86,6 +89,28 @@ export default function BatchDetailScreen({ route, navigation }: any) {
   useEffect(() => {
     if (batch?.batch_code) navigation.setOptions({ title: batch.batch_code });
   }, [batch?.batch_code, navigation]);
+
+  useEffect(() => {
+    setExpiryInput(batch?.expiry_date || '');
+  }, [batch?.expiry_date]);
+
+  const saveExpiry = async (value: string | null) => {
+    if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      setExpiryMsg('Use the format YYYY-MM-DD, for example 2027-03-31');
+      return;
+    }
+    setExpirySaving(true);
+    setExpiryMsg('');
+    try {
+      const { data } = await inventoryApi.updateBatchExpiry(batch.id, value);
+      setBatch(data);
+      setExpiryMsg(value ? `Expiry set to ${value}` : 'Expiry date cleared');
+    } catch (e) {
+      setExpiryMsg(getErrorMessage(e));
+    } finally {
+      setExpirySaving(false);
+    }
+  };
 
   const pickAndUploadImage = async () => {
     if (!canManage || !batch?.item?.id) return;
@@ -292,6 +317,35 @@ export default function BatchDetailScreen({ route, navigation }: any) {
           <DetailRow label="Barcode" value={batch.barcode_value} />
           <DetailRow label="Location" value={location} />
           <DetailRow label="Testing" value={batch.testing_status} />
+          <DetailRow label="Expiry date" value={batch.expiry_date || 'Not set'} />
+          {canManage ? (
+            <View style={{ marginTop: 8 }}>
+              <Input
+                label="Expiry date (YYYY-MM-DD)"
+                value={expiryInput}
+                onChangeText={setExpiryInput}
+                placeholder="e.g. 2027-03-31"
+                keyboardType="numbers-and-punctuation"
+                autoCorrect={false}
+              />
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    label="Save expiry"
+                    variant="secondary"
+                    loading={expirySaving}
+                    onPress={() => saveExpiry(expiryInput.trim() || null)}
+                  />
+                </View>
+                {batch.expiry_date ? (
+                  <View style={{ flex: 1 }}>
+                    <Button label="Clear" variant="ghost" disabled={expirySaving} onPress={() => saveExpiry(null)} />
+                  </View>
+                ) : null}
+              </View>
+              {expiryMsg ? <Muted>{expiryMsg}</Muted> : null}
+            </View>
+          ) : null}
           {canManage ? (
             <View style={{ marginTop: 8, gap: 6 }}>
               <Muted>Set testing status (leads only)</Muted>

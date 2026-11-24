@@ -9,6 +9,7 @@ from barcodes.printing import (
     ALLOWED_DPI,
     MAX_LABEL_MM,
     MIN_LABEL_MM,
+    printer_payload,
     render_barcode_label_commands,
     render_test_label_commands,
 )
@@ -105,21 +106,7 @@ class PrinterTestLabelView(APIView):
             printer = Printer.objects.get(pk=pk)
         except Printer.DoesNotExist:
             raise ApiError('NOT_FOUND', 'Printer not found', status_code=404)
-        return Response(_printer_payload(printer, render_test_label_commands(printer)))
-
-
-def _printer_payload(printer: Printer, commands: str) -> dict:
-    return {
-        'printer_id': printer.id,
-        'printer_name': printer.name,
-        'language': printer.language,
-        'host': printer.host,
-        'port': printer.port,
-        'label_width_mm': printer.label_width_mm,
-        'label_height_mm': printer.label_height_mm,
-        'dpi': printer.dpi,
-        'commands': commands,
-    }
+        return Response(printer_payload(printer, render_test_label_commands(printer)))
 
 
 class BarcodeSerializer(serializers.ModelSerializer):
@@ -208,7 +195,7 @@ class BarcodePrintCommandsView(APIView):
             barcode = Barcode.objects.get(value=value)
         except Barcode.DoesNotExist:
             raise ApiError('NOT_FOUND', 'Barcode not found', status_code=404)
-        return Response(_printer_payload(printer, render_barcode_label_commands(barcode, printer)))
+        return Response(printer_payload(printer, render_barcode_label_commands(barcode, printer)))
 
 
 class PrintLogView(APIView):
@@ -226,3 +213,4 @@ class PrintLogView(APIView):
             notes=request.data.get('notes', ''),
         )
         return Response({'id': log.id, 'created_at': log.created_at}, status=status.HTTP_201_CREATED)
+

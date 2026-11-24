@@ -143,6 +143,22 @@ def render_barcode_label_commands(barcode, printer: Printer) -> str:
     )
 
 
+def printer_payload(printer: Printer, commands: str, **extra) -> dict:
+    """Response body the mobile app needs to send `commands` to `printer`."""
+    return {
+        'printer_id': printer.id,
+        'printer_name': printer.name,
+        'language': printer.language,
+        'host': printer.host,
+        'port': printer.port,
+        'label_width_mm': printer.label_width_mm,
+        'label_height_mm': printer.label_height_mm,
+        'dpi': printer.dpi,
+        'commands': commands,
+        **extra,
+    }
+
+
 def render_test_label_commands(printer: Printer) -> str:
     return build_label_commands(
         language=printer.language,

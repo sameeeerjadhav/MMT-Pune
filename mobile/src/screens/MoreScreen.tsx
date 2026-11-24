@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { LogoutIcon, MORE_LINK_ICONS, UserIcon } from '../components/icons';
 import { Badge, Card, Muted, Screen, SectionLabel } from '../components/ui';
 import { PageHeader } from '../components/PageHeader';
+import { SyncStatusCard } from '../components/SyncStatusCard';
 import { colors, fonts } from '../theme/tokens';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { moreLinksForRole, roleLabel } from '../utils/roles';
@@ -39,6 +40,8 @@ export default function MoreScreen() {
             />
           </View>
         </Card>
+
+        <SyncStatusCard />
 
         <SectionLabel>Modules for your role</SectionLabel>
         {links.map((link) => {
