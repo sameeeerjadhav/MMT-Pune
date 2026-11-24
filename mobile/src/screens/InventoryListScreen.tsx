@@ -384,7 +384,7 @@ export default function InventoryListScreen() {
 
   return (
     <Screen>
-      <FlatList
+      <FlatList showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: scrollPad }}
         data={rows}

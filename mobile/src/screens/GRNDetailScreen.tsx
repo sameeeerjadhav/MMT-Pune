@@ -45,7 +45,7 @@ export default function GRNDetailScreen({ route, navigation }: any) {
 
   return (
     <Screen>
-      <ScrollView>
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}>
         <Muted>
           {grn.external_system} {grn.external_ref || ''} | {String(grn.received_date).slice(0, 10)}
         </Muted>

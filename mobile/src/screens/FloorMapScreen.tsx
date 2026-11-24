@@ -182,7 +182,7 @@ export default function FloorMapScreen({ route, navigation }: any) {
 
   return (
     <Screen style={{ padding: 0 }}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }} nestedScrollEnabled>
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }} nestedScrollEnabled>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
           <RackIcon size={22} color={colors.primaryDark} />
           <View style={{ flex: 1 }}>
@@ -237,9 +237,8 @@ export default function FloorMapScreen({ route, navigation }: any) {
             for stock, then open the rack map for shelf / position detail.
           </Muted>
 
-          <ScrollView
+          <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
             horizontal
-            showsHorizontalScrollIndicator
             nestedScrollEnabled
             {...(Platform.OS === 'android' ? { nestedScrollEnabled: true } : null)}
           >
@@ -523,7 +522,7 @@ export default function FloorMapScreen({ route, navigation }: any) {
               Place rack at {selected?.cell_code || '—'}
             </Subtitle>
             <Muted>Choose an unplaced rack for this bay.</Muted>
-            <ScrollView style={{ marginTop: 12 }}>
+            <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
               {availableRacks.length === 0 ? (
                 <Muted>No free racks in this warehouse. Create a rack first from the list.</Muted>
               ) : (

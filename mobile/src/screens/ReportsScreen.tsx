@@ -210,7 +210,7 @@ export default function ReportsScreen() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ paddingBottom: scrollPad }}>
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingBottom: scrollPad }}>
         <PageHeader
           title="Reports"
           safeTop

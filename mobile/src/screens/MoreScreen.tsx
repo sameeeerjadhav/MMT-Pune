@@ -18,7 +18,7 @@ export default function MoreScreen() {
 
   return (
     <Screen style={{ padding: 0 }}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}>
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}>
         <PageHeader title="More" safeTop />
 
         <Card>

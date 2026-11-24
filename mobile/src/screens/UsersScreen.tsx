@@ -439,7 +439,7 @@ export default function UsersScreen() {
 
   return (
     <Screen>
-      <FlatList
+      <FlatList showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
         style={{ flex: 1 }}
         data={rows}
         keyExtractor={(item) => String(item.id)}

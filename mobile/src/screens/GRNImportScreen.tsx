@@ -62,7 +62,7 @@ export default function GRNImportScreen({ navigation }: any) {
 
   return (
     <Screen>
-      <ScrollView>
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}>
         <Muted>Mock integration for M1/Workroom demo. Duplicate external refs are rejected.</Muted>
         <Card>
           <Input

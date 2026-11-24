@@ -195,7 +195,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
 
   return (
     <Screen style={{ padding: 0 }}>
-      <ScrollView
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"

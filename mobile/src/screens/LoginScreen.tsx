@@ -52,11 +52,10 @@ export default function LoginScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        <ScrollView
+        <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
           style={{ flex: 1 }}
           contentContainerStyle={{ flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
           bounces
         >
           <View

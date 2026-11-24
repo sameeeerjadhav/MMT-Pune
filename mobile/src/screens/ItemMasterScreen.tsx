@@ -305,7 +305,7 @@ export default function ItemMasterScreen() {
 
       {error ? <Text style={{ color: colors.danger, marginBottom: 8 }}>{error}</Text> : null}
 
-      <FlatList
+      <FlatList showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
         style={{ flex: 1 }}
         data={rows}
         keyExtractor={(item) => String(item.id)}

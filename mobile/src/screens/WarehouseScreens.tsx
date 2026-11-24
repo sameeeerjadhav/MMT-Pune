@@ -728,7 +728,7 @@ export function WarehouseListScreen({ navigation }: any) {
 
   return (
     <Screen>
-      <FlatList
+      <FlatList showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
         style={{ flex: 1 }}
         data={filteredRacks}
         keyExtractor={(item) => String(item.id)}
@@ -805,7 +805,7 @@ export function RackDetailScreen({ route, navigation }: any) {
 
   return (
     <Screen>
-      <ScrollView>
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}>
         <Muted>
           {rack.warehouse_code} | {rack.barcode_value}
         </Muted>
@@ -946,7 +946,7 @@ export function AllocateScreen({ route }: any) {
 
   return (
     <Screen>
-      <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
         <Muted>Allocate in 3 steps: warehouse → rack number → row/column.</Muted>
         {positionLabel && positionId ? <Muted>Preselected from map: {positionLabel}</Muted> : null}
 
@@ -1192,7 +1192,7 @@ export function TransferScreen({ route }: any) {
 
   return (
     <Screen>
-      <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
         <Muted>Move stock: pick From and To as warehouse → rack → row/column.</Muted>
 
         <SelectionSummary

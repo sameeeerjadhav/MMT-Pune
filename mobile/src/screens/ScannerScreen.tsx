@@ -41,11 +41,10 @@ export default function ScannerScreen({ navigation }: any) {
 
   return (
     <Screen style={{ padding: 0 }}>
-      <ScrollView
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}
         keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
       >
         <PageHeader title="Scanner" safeTop />
         <View style={{ alignItems: 'center', marginBottom: 12 }}>
