@@ -25,8 +25,26 @@ from barcodes.views import (
     PrinterTestLabelView,
     PrintLogView,
 )
-from grn.views import GRNDetailView, GRNGenerateBarcodesView, GRNImportView, GRNListCreateView
+from audit.views import AuditLogListView
+from counts.views import (
+    CountDetailView,
+    CountLineDeleteView,
+    CountListCreateView,
+    CountScanView,
+    CountSubmitView,
+    CountVarianceCsvView,
+)
+from grn.views import (
+    GRNDetailView,
+    GRNGenerateBarcodesView,
+    GRNImportView,
+    GRNListCreateView,
+    GRNPrintCommandsView,
+    GRNPrintLogView,
+)
+from reports.exports import GrnCsvView, OccupancyCsvView, StockCsvView, WithdrawalsCsvView
 from inventory.views import (
+    AlertsView,
     AllocationDetailView,
     BatchDetailView,
     CategoryListView,
@@ -89,6 +107,8 @@ urlpatterns = [
     path('api/grns/import/', GRNImportView.as_view()),
     path('api/grns/<int:pk>/', GRNDetailView.as_view()),
     path('api/grns/<int:pk>/generate-barcodes/', GRNGenerateBarcodesView.as_view()),
+    path('api/grns/<int:pk>/print-commands/', GRNPrintCommandsView.as_view()),
+    path('api/grns/<int:pk>/print-log/', GRNPrintLogView.as_view()),
     path('api/inventory/', InventoryListView.as_view()),
     path('api/inventory/categories/', CategoryListView.as_view()),
     path('api/inventory/items/', ItemListCreateView.as_view()),
@@ -128,6 +148,18 @@ urlpatterns = [
     path('api/withdrawals/', WithdrawalListCreateView.as_view()),
     path('api/withdrawals/<int:pk>/', WithdrawalDetailView.as_view()),
     path('api/withdrawals/<int:pk>/pdf/', WithdrawalPdfView.as_view()),
+    path('api/audit-logs/', AuditLogListView.as_view()),
+    path('api/alerts/', AlertsView.as_view()),
+    path('api/counts/', CountListCreateView.as_view()),
+    path('api/counts/<int:pk>/', CountDetailView.as_view()),
+    path('api/counts/<int:pk>/scan/', CountScanView.as_view()),
+    path('api/counts/<int:pk>/lines/<int:line_id>/', CountLineDeleteView.as_view()),
+    path('api/counts/<int:pk>/submit/', CountSubmitView.as_view()),
+    path('api/counts/<int:pk>/variance.csv', CountVarianceCsvView.as_view()),
+    path('api/reports/stock.csv', StockCsvView.as_view()),
+    path('api/reports/grn.csv', GrnCsvView.as_view()),
+    path('api/reports/withdrawals.csv', WithdrawalsCsvView.as_view()),
+    path('api/reports/rack-occupancy.csv', OccupancyCsvView.as_view()),
     path('api/reports/stock/', StockReportView.as_view()),
     path('api/reports/grn/', GRNReportView.as_view()),
     path('api/reports/withdrawals/', WithdrawalReportView.as_view()),

@@ -38,6 +38,12 @@ class Item(models.Model):
     inventory_type = models.CharField(max_length=16, choices=InventoryType.choices)
     uom = models.CharField(max_length=20, default='EA')
     image = models.ImageField(upload_to='items/%Y/%m/', blank=True, null=True)
+    reorder_level = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=0,
+        help_text='Raise a low-stock alert when withdrawable stock is at or below this. 0 = off.',
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -63,6 +69,7 @@ class InventoryBatch(models.Model):
         max_length=16, choices=TestingStatus.choices, default=TestingStatus.PENDING
     )
     received_at = models.DateTimeField(db_index=True)
+    expiry_date = models.DateField(null=True, blank=True, db_index=True)
     barcode = models.OneToOneField(
         'barcodes.Barcode', on_delete=models.SET_NULL, null=True, blank=True, related_name='batch'
     )

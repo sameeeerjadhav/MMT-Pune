@@ -11,6 +11,7 @@ import {
 } from '@expo-google-fonts/dm-sans';
 import { Sora_600SemiBold, Sora_700Bold } from '@expo-google-fonts/sora';
 import { AuthProvider } from './src/context/AuthContext';
+import { OfflineQueueProvider } from './src/context/OfflineQueueContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import { BootLoading } from './src/components/BootLoading';
 
@@ -38,8 +39,10 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
-          <StatusBar style="dark" />
-          <RootNavigator />
+          <OfflineQueueProvider>
+            <StatusBar style="dark" />
+            <RootNavigator />
+          </OfflineQueueProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

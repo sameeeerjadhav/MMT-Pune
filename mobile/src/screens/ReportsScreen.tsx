@@ -4,8 +4,9 @@ import { reportsApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { ChartIcon } from '../components/icons';
-import { Button, Card, ErrorState, LoadingState, Muted, Screen, Subtitle } from '../components/ui';
+import { Button, Card, ErrorState, LoadingState, Muted, Screen, SectionLabel, Subtitle } from '../components/ui';
 import { PageHeader } from '../components/PageHeader';
+import { downloadAndShareFile } from '../utils/downloadFile';
 import { colors, fonts } from '../theme/tokens';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { canAccess } from '../utils/roles';
@@ -155,6 +156,7 @@ export default function ReportsScreen() {
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfMsg, setPdfMsg] = useState('');
+  const [csvLoading, setCsvLoading] = useState('');
 
   if (!canAccess(user?.role, 'reports')) {
     return <ErrorState message="Reports are limited to supervisors and admins." />;
@@ -173,6 +175,21 @@ export default function ReportsScreen() {
       setData(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const exportCsv = async (name: 'stock' | 'grn' | 'withdrawals' | 'rack-occupancy', label: string) => {
+    setError('');
+    setPdfMsg('');
+    setCsvLoading(name);
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+      await downloadAndShareFile(reportsApi.csvPath(name), `${name}-${stamp}.csv`);
+      setPdfMsg(`${label} CSV ready to share / save. It opens in Excel.`);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setCsvLoading('');
     }
   };
 
@@ -213,6 +230,31 @@ export default function ReportsScreen() {
           label="Older stock alerts"
           variant="secondary"
           onPress={() => run('Older stock', reportsApi.fifo)}
+        />
+        <SectionLabel>Export to Excel (CSV)</SectionLabel>
+        <Button
+          label="Stock (batches and units, with locations)"
+          variant="secondary"
+          loading={csvLoading === 'stock'}
+          onPress={() => exportCsv('stock', 'Stock')}
+        />
+        <Button
+          label="GRN lines"
+          variant="secondary"
+          loading={csvLoading === 'grn'}
+          onPress={() => exportCsv('grn', 'GRN')}
+        />
+        <Button
+          label="Withdrawals"
+          variant="secondary"
+          loading={csvLoading === 'withdrawals'}
+          onPress={() => exportCsv('withdrawals', 'Withdrawals')}
+        />
+        <Button
+          label="Rack occupancy"
+          variant="secondary"
+          loading={csvLoading === 'rack-occupancy'}
+          onPress={() => exportCsv('rack-occupancy', 'Rack occupancy')}
         />
         {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
         {pdfMsg ? <Muted>{pdfMsg}</Muted> : null}

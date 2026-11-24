@@ -32,6 +32,9 @@ class ItemSerializer(serializers.ModelSerializer):
     category = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.all(), required=False, allow_null=True
     )
+    reorder_level = serializers.DecimalField(
+        max_digits=18, decimal_places=4, min_value=0, required=False
+    )
 
     class Meta:
         model = Item
@@ -48,6 +51,7 @@ class ItemSerializer(serializers.ModelSerializer):
             'uom',
             'image',
             'image_url',
+            'reorder_level',
             'is_active',
             'created_at',
             'updated_at',
@@ -82,6 +86,16 @@ class ItemSerializer(serializers.ModelSerializer):
 
 class TestingStatusSerializer(serializers.Serializer):
     testing_status = serializers.ChoiceField(choices=['PENDING', 'PASSED', 'FAILED'])
+
+
+class BatchUpdateSerializer(serializers.Serializer):
+    testing_status = serializers.ChoiceField(choices=['PENDING', 'PASSED', 'FAILED'], required=False)
+    expiry_date = serializers.DateField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError('Provide testing_status and/or expiry_date')
+        return attrs
 
 
 class StockAllocationSerializer(serializers.ModelSerializer):
@@ -174,6 +188,7 @@ class InventoryBatchListSerializer(serializers.ModelSerializer):
             'reserved_qty',
             'testing_status',
             'received_at',
+            'expiry_date',
             'barcode_value',
             'grn_number',
         )

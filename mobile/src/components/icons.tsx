@@ -287,7 +287,34 @@ export function ScanHeroIcon({ size = 88, color = colors.primary }: IconProps) {
   );
 }
 
+export function ClipboardIcon({ size = 24, color = colors.navy }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x="5" y="5" width="14" height="16" rx="2" stroke={color} strokeWidth={1.8} />
+      <Rect x="9" y="3" width="6" height="4" rx="1" stroke={color} strokeWidth={1.8} />
+      <Path d="M8.5 13l2.2 2.2L15.5 10.5" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+export function ShieldIcon({ size = 24, color = colors.navy }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 3l7 3v5.5c0 4.4-2.9 8-7 9.5-4.1-1.5-7-5.1-7-9.5V6l7-3z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+      <Path d="M9 12l2.2 2.2L15 10" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
 const TAB_ICONS = {
+  Counts: ClipboardIcon,
+  Alerts: BellIcon,
+  Audit: ShieldIcon,
   Dashboard: HomeIcon,
   Scanner: ScanIcon,
   Inventory: CubeIcon,
@@ -386,4 +413,7 @@ export const MORE_LINK_ICONS = {
   reports: ChartIcon,
   users: UserIcon,
   settings: GearIcon,
+  counts: ClipboardIcon,
+  alerts: BellIcon,
+  audit: ShieldIcon,
 } as const;

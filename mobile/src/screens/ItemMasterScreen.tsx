@@ -44,6 +44,7 @@ export default function ItemMasterScreen() {
     inventory_type: 'BULK',
     uom: 'EA',
     description: '',
+    reorder_level: '0',
     is_active: true,
   });
 
@@ -85,6 +86,7 @@ export default function ItemMasterScreen() {
       inventory_type: 'BULK',
       uom: 'EA',
       description: '',
+      reorder_level: '0',
       is_active: true,
     });
   };
@@ -99,6 +101,7 @@ export default function ItemMasterScreen() {
       inventory_type: item.inventory_type || 'BULK',
       uom: item.uom || 'EA',
       description: item.description || '',
+      reorder_level: String(Number(item.reorder_level) || 0),
       is_active: item.is_active !== false,
     });
   };
@@ -117,6 +120,11 @@ export default function ItemMasterScreen() {
       setError('Category code is required for new items');
       return;
     }
+    const reorder = Number(form.reorder_level.trim() || '0');
+    if (!Number.isFinite(reorder) || reorder < 0) {
+      setError('Reorder level must be 0 or more');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -126,6 +134,7 @@ export default function ItemMasterScreen() {
         inventory_type: form.inventory_type,
         uom: form.uom.trim() || 'EA',
         description: form.description,
+        reorder_level: form.reorder_level.trim() || '0',
         is_active: form.is_active,
       };
       if (form.category_code_input.trim()) {
@@ -233,6 +242,13 @@ export default function ItemMasterScreen() {
             autoCapitalize="characters"
           />
           <Input label="UOM" value={form.uom} onChangeText={(t) => setForm((f) => ({ ...f, uom: t }))} />
+          <Input
+            label="Reorder level (low-stock alert)"
+            placeholder="0 = no alert"
+            value={form.reorder_level}
+            onChangeText={(t) => setForm((f) => ({ ...f, reorder_level: t }))}
+            keyboardType="decimal-pad"
+          />
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
             <View style={{ flex: 1 }}>
               <Button
@@ -307,6 +323,7 @@ export default function ItemMasterScreen() {
                 <Text style={{ color: colors.text, fontWeight: '600', marginTop: 2 }}>{item.name}</Text>
                 <Muted>
                   {item.category_name || item.category_code || 'No category'} · {item.uom}
+                  {Number(item.reorder_level) > 0 ? ` · alert at ${Number(item.reorder_level)}` : ''}
                 </Muted>
               </Pressable>
               {canManage ? (
