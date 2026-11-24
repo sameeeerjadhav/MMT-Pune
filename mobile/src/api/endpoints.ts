@@ -5,6 +5,7 @@ export const authApi = {
     api.post('/auth/login/', { username, password }),
   logout: (refresh: string) => api.post('/auth/logout/', { refresh }),
   profile: () => api.get('/auth/profile/'),
+  updateProfile: (payload: Record<string, unknown>) => api.patch('/auth/profile/', payload),
 };
 
 export const usersApi = {

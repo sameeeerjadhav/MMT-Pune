@@ -13,6 +13,7 @@ from accounts.models import Role
 from accounts.permissions import IsAdmin
 from accounts.serializers import (
     LoginSerializer,
+    ProfileUpdateSerializer,
     StaffUserCreateSerializer,
     StaffUserUpdateSerializer,
     UserSerializer,
@@ -108,6 +109,28 @@ class ProfileView(APIView):
     def get(self, request):
         request.user.claim_main_admin_if_needed()
         return Response(UserSerializer(request.user).data)
+
+    @extend_schema(request=ProfileUpdateSerializer, responses=UserSerializer)
+    def patch(self, request):
+        """Edit your own details. Any admin (not just the main admin) can edit their own account."""
+        ser = ProfileUpdateSerializer(
+            request.user, data=request.data, partial=True, context={'request': request}
+        )
+        ser.is_valid(raise_exception=True)
+        user = ser.save()
+        AuditLog.objects.create(
+            user=user,
+            action='UPDATE',
+            entity_type='User',
+            entity_id=user.id,
+            details={
+                'self_edit': True,
+                'username': user.username,
+                'fields': ser.changed_fields,
+                'password_changed': ser.password_changed,
+            },
+        )
+        return Response(UserSerializer(user).data)
 
 
 class HealthView(APIView):

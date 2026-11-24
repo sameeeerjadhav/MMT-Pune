@@ -130,6 +130,71 @@ class StaffUserUpdateSerializer(serializers.Serializer):
         return instance
 
 
+class ProfileUpdateSerializer(serializers.Serializer):
+    """
+    Self-service edit of the signed-in user's own account.
+
+    - Everyone: first_name, last_name, email, and their own password (needs current_password).
+    - Admins only: username and employee_id (other roles get these assigned by an admin).
+    - Never editable here: role, is_active, is_staff, is_superuser.
+    """
+
+    ADMIN_ONLY_FIELDS = ('username', 'employee_id')
+
+    username = serializers.CharField(max_length=150, required=False)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    employee_id = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    current_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    new_password = serializers.CharField(min_length=6, write_only=True, required=False)
+
+    def validate_username(self, value):
+        username = value.strip()
+        if not username:
+            raise serializers.ValidationError('Username cannot be empty')
+        clash = User.objects.filter(username__iexact=username).exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise serializers.ValidationError('Username already taken')
+        return username
+
+    def validate_email(self, value):
+        email = (value or '').strip()
+        # Login also accepts email, so it must identify exactly one account.
+        if email and User.objects.filter(email__iexact=email).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError('Email already in use')
+        return email
+
+    def validate(self, attrs):
+        user = self.instance
+        if not user.has_role('ADMIN'):
+            for field in self.ADMIN_ONLY_FIELDS:
+                if field in attrs and attrs[field] != getattr(user, field):
+                    raise serializers.ValidationError(
+                        {field: 'Only an admin can change this field'}
+                    )
+        if attrs.get('new_password'):
+            if not user.check_password(attrs.get('current_password') or ''):
+                raise serializers.ValidationError(
+                    {'current_password': 'Current password is incorrect'}
+                )
+        return attrs
+
+    def update(self, instance, validated_data):
+        validated_data.pop('current_password', None)
+        new_password = validated_data.pop('new_password', None)
+        self.changed_fields = [
+            key for key, value in validated_data.items() if getattr(instance, key) != value
+        ]
+        for key, value in validated_data.items():
+            setattr(instance, key, value)
+        self.password_changed = bool(new_password)
+        if new_password:
+            instance.set_password(new_password)
+        instance.save()
+        return instance
+
+
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField(write_only=True)

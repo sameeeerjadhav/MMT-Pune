@@ -119,7 +119,10 @@ export function getErrorMessage(error: unknown): string {
     return data.length > 180 ? `${data.slice(0, 180)}…` : data;
   }
   if (data && typeof data === 'object') {
-    if (data.message) return data.message;
+    // The API uses "Request failed" as a generic message for validation errors and puts the
+    // real reason (e.g. "current_password: Current password is incorrect") in `details`.
+    const isGenericMessage = data.message === 'Request failed' && Boolean(data.details);
+    if (data.message && !isGenericMessage) return data.message;
     if (Array.isArray(data.non_field_errors) && data.non_field_errors.length) {
       return data.non_field_errors.join('; ');
     }
