@@ -30,6 +30,7 @@ import {
 import { ErrorState, Muted } from '../components/ui';
 import { DashboardSkeleton } from '../components/Skeleton';
 import { SyncStatusCard } from '../components/SyncStatusCard';
+import { BrandMark } from '../components/BrandMark';
 import { colors, fonts, radius, shadow, spacing } from '../theme/tokens';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { canAccess, roleLabel } from '../utils/roles';
@@ -219,7 +220,7 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
         ref={scrollRef}
         contentContainerStyle={{
           paddingBottom: scrollPad,
@@ -237,6 +238,7 @@ export default function DashboardScreen() {
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerTop}>
+            <BrandMark size="lg" style={{ marginRight: 10 }} />
             <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
               <Text style={styles.hello} numberOfLines={1}>
                 Hello, {user?.first_name || user?.username}
@@ -313,9 +315,8 @@ export default function DashboardScreen() {
         </View>
 
         {/* Metric strip — horizontal like the mock */}
-        <ScrollView
+        <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
           horizontal
-          showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.metricsRow}
           decelerationRate="fast"
         >
@@ -399,9 +400,8 @@ export default function DashboardScreen() {
 
         {/* Quick actions */}
         <Text style={styles.sectionTitle}>Quick actions</Text>
-        <ScrollView
+        <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
           horizontal
-          showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.actionsRow}
         >
           {actions.map((a) => {

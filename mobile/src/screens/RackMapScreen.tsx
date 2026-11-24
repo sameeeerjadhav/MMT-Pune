@@ -269,7 +269,7 @@ export default function RackMapScreen({ route, navigation }: any) {
 
   return (
     <Screen style={{ padding: 0 }}>
-      <ScrollView
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
         ref={scrollRef}
         contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}
         nestedScrollEnabled
@@ -344,9 +344,8 @@ export default function RackMapScreen({ route, navigation }: any) {
           <Subtitle>Visual rack map</Subtitle>
           <Muted>Rows = shelves · Columns = positions. Tap occupied stock for details & history.</Muted>
 
-          <ScrollView
+          <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
             horizontal
-            showsHorizontalScrollIndicator
             nestedScrollEnabled
             {...(Platform.OS === 'android' ? { nestedScrollEnabled: true } : null)}
           >

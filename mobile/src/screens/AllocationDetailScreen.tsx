@@ -238,7 +238,7 @@ export default function AllocationDetailScreen({ route, navigation }: any) {
 
   return (
     <Screen style={{ padding: 0 }}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}>
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}>
         <Card>
           <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
             <Badge label={stock.kind || 'STOCK'} tone="primary" />

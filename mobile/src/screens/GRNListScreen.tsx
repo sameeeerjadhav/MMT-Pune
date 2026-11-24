@@ -103,7 +103,7 @@ export default function GRNListScreen() {
         <Button label="Import / Add Sample GRN" onPress={() => navigation.navigate('GRNImport')} />
       ) : null}
       {error ? <Text style={{ color: colors.danger, marginBottom: 8 }}>{error}</Text> : null}
-      <FlatList
+      <FlatList showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: scrollPad }}
         data={rows}

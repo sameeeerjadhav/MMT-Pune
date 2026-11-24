@@ -29,7 +29,7 @@ export default function SettingsScreen() {
 
   return (
     <Screen style={{ padding: 0 }}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}>
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}>
       <PageHeader title="Settings" safeTop />
 
       <Card>

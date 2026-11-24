@@ -276,9 +276,8 @@ export function FilterChips({
   onChange: (value: string) => void;
 }) {
   return (
-    <ScrollView
+    <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
       horizontal
-      showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.filterChipRow}
       style={{ marginBottom: spacing.sm }}
     >
@@ -323,10 +322,9 @@ export function SelectList({
           <Muted>{emptyLabel}</Muted>
         </View>
       ) : (
-        <ScrollView
+        <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
           nestedScrollEnabled
           keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator
         >
           {children}
         </ScrollView>

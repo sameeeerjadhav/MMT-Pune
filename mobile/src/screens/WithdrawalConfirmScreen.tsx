@@ -59,7 +59,7 @@ export default function WithdrawalConfirmScreen({ route }: any) {
 
   return (
     <Screen style={{ padding: 0 }}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
         {data ? (
           <>
