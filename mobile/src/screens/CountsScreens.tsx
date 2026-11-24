@@ -148,7 +148,7 @@ export function CountListScreen({ navigation }: any) {
 
   return (
     <Screen style={{ padding: 0 }}>
-      <ScrollView
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}
         keyboardShouldPersistTaps="handled"
       >
@@ -423,7 +423,7 @@ export function CountSessionScreen({ route, navigation }: any) {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ paddingBottom: scrollPad }} keyboardShouldPersistTaps="handled">
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingBottom: scrollPad }} keyboardShouldPersistTaps="handled">
         <Card>
           <View style={styles.rowBetween}>
             <Text style={styles.rowTitle}>

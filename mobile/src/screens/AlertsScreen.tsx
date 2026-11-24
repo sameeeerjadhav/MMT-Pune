@@ -81,7 +81,7 @@ export default function AlertsScreen({ navigation }: any) {
 
   return (
     <Screen style={{ padding: 0 }}>
-      <ScrollView
+      <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ padding: 16, paddingBottom: scrollPad }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={colors.primary} />}
       >
