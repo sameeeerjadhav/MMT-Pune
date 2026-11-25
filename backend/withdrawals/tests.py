@@ -79,3 +79,80 @@ class WithdrawalAllocationSyncTests(TestCase):
         alloc = StockAllocation.objects.get(batch=self.batch, is_active=True, allocation_type='ACTUAL')
         self.batch.refresh_from_db()
         self.assertEqual(alloc.quantity, self.batch.available_qty)
+
+
+class BadIdHandlingTests(WithdrawalAllocationSyncTests):
+    """Unknown or malformed ids must return 400/404, never a 500."""
+
+    test_withdrawal_reduces_rack_allocation_quantity = None
+    test_api_withdrawal_keeps_allocation_in_sync = None
+
+    def test_withdrawal_create_missing_batch_or_unit_is_404(self):
+        for payload in ({'batch_id': 999999, 'quantity': '1'}, {'unit_id': 999999}):
+            res = self.client.post(
+                '/api/withdrawals/', {'purpose': 'SHIPMENT', **payload}, format='json'
+            )
+            self.assertEqual(res.status_code, 404, payload)
+            self.assertEqual(res.data['code'], 'NOT_FOUND')
+
+    def test_withdrawal_validate_bad_input_is_4xx(self):
+        cases = [
+            ({'batch_id': 999999, 'quantity': '1'}, 404),
+            ({'batch_id': 'abc', 'quantity': '1'}, 400),
+            ({'unit_id': 'abc'}, 400),
+            ({'batch_id': self.batch.id, 'quantity': 'lots'}, 400),
+            ({'batch_id': self.batch.id, 'quantity': 'NaN'}, 400),
+        ]
+        for payload, expected in cases:
+            res = self.client.post('/api/withdrawals/validate/', payload, format='json')
+            self.assertEqual(res.status_code, expected, payload)
+
+    def test_withdrawal_pdf_missing_is_404(self):
+        self.assertEqual(self.client.get('/api/withdrawals/999999/pdf/').status_code, 404)
+
+    def test_allocate_bad_ids_and_qty_are_4xx(self):
+        cases = [
+            ({'position_id': 999999, 'batch_id': self.batch.id, 'quantity': '1'}, 404),
+            ({'position_id': 'x', 'batch_id': self.batch.id, 'quantity': '1'}, 400),
+            ({'position_id': self.pos.id, 'batch_id': 999999, 'quantity': '1'}, 404),
+            ({'position_id': self.pos.id, 'unit_id': 999999}, 404),
+            ({'position_id': self.pos.id, 'batch_id': self.batch.id, 'quantity': 'abc'}, 400),
+            (
+                {
+                    'position_id': self.pos.id,
+                    'batch_id': self.batch.id,
+                    'quantity': '1',
+                    'allocation_type': 'BOGUS',
+                },
+                400,
+            ),
+        ]
+        for payload, expected in cases:
+            res = self.client.post('/api/locations/allocate/', payload, format='json')
+            self.assertEqual(res.status_code, expected, payload)
+
+    def test_transfer_missing_positions_or_stock_are_404(self):
+        cases = [
+            {'from_position_id': self.pos.id, 'to_position_id': 999999},
+            {'from_position_id': 999999, 'to_position_id': self.pos.id},
+        ]
+        for ids in cases:
+            res = self.client.post(
+                '/api/locations/transfer/',
+                {**ids, 'batch_id': self.batch.id, 'quantity': '1'},
+                format='json',
+            )
+            self.assertEqual(res.status_code, 404, ids)
+
+    def test_rack_inventory_and_history_missing_are_404(self):
+        self.assertEqual(self.client.get('/api/racks/999999/inventory/').status_code, 404)
+        self.assertEqual(
+            self.client.get('/api/inventory/batch/999999/history/').status_code, 404
+        )
+        self.assertEqual(self.client.get('/api/inventory/unit/999999/history/').status_code, 404)
+        self.assertEqual(
+            self.client.get(f'/api/inventory/batch/{self.batch.id}/history/').status_code, 200
+        )
+        self.assertEqual(
+            self.client.get(f'/api/racks/{self.pos.shelf.rack_id}/inventory/').status_code, 200
+        )

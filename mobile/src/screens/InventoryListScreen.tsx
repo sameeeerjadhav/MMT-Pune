@@ -152,7 +152,8 @@ export default function InventoryListScreen() {
       if (key === appliedSearchKey.current) return;
       appliedSearchKey.current = key;
 
-      if (nextQ) setQ(nextQ);
+      // Deep links describe the whole view: a metric card must not combine with an old search.
+      setQ(nextQ);
 
       if (resetFilters) {
         setLowStockOnly(false);
@@ -220,8 +221,8 @@ export default function InventoryListScreen() {
     setFiltersOpen(false);
   };
 
+  // Draft only — low-stock mode is dropped when the user presses Apply, so Cancel keeps it.
   const clearDraft = () => {
-    setLowStockOnly(false);
     setDraft({ ...EMPTY_FILTERS });
   };
 
@@ -370,7 +371,10 @@ export default function InventoryListScreen() {
           <TextAction
             label="Clear"
             tone="muted"
-            onPress={() => setApplied({ ...EMPTY_FILTERS })}
+            onPress={() => {
+              setLowStockOnly(false);
+              setApplied({ ...EMPTY_FILTERS });
+            }}
           />
         </View>
       ) : null}

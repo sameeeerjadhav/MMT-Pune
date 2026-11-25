@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { inventoryApi } from '../api/endpoints';
@@ -48,6 +48,8 @@ export default function ItemMasterScreen() {
     is_active: true,
   });
 
+  const hasLoaded = useRef(false);
+
   const load = useCallback(
     async (opts?: { soft?: boolean }) => {
       setError('');
@@ -59,6 +61,7 @@ export default function ItemMasterScreen() {
           include_inactive: canManage ? '1' : undefined,
         });
         setRows(data);
+        hasLoaded.current = true;
       } catch (e) {
         setError(getErrorMessage(e));
       } finally {
@@ -71,7 +74,7 @@ export default function ItemMasterScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void load({ soft: rows.length > 0 });
+      void load({ soft: hasLoaded.current });
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [debouncedQ, canManage])
   );

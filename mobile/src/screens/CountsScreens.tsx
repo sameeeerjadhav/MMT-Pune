@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { countsApi, warehouseApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -239,6 +239,7 @@ export function CountSessionScreen({ route, navigation }: any) {
   const [error, setError] = useState('');
   const [offlineNote, setOfflineNote] = useState(false);
   const [cameraOn, setCameraOn] = useState(true);
+  const isFocused = useIsFocused();
   const [manual, setManual] = useState('');
   const [pendingBatch, setPendingBatch] = useState<string | null>(null);
   const [qty, setQty] = useState('');
@@ -452,7 +453,7 @@ export function CountSessionScreen({ route, navigation }: any) {
 
         {isOpen ? (
           <>
-            {permission?.granted && cameraOn ? (
+            {permission?.granted && cameraOn && isFocused ? (
               <View style={styles.camera}>
                 <CameraView
                   style={{ flex: 1 }}

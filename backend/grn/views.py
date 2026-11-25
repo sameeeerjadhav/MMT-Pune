@@ -40,7 +40,9 @@ class GRNListCreateView(generics.ListCreateAPIView):
         serializer = GRNImportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        data['external_system'] = data.get('external_system') or 'MANUAL'
+        # The serializer defaults to MOCK for the import endpoint; a manual create means MANUAL.
+        if not request.data.get('external_system'):
+            data['external_system'] = 'MANUAL'
         grn = import_grn_payload(data, source='MOCK', system=data['external_system'])
         return Response(GRNSerializer(grn).data, status=status.HTTP_201_CREATED)
 

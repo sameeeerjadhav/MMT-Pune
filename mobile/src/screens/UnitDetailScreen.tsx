@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, ScrollView, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { inventoryApi, barcodeApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -40,6 +41,8 @@ export default function UnitDetailScreen({ route, navigation }: any) {
   const canManage = canAccess(user?.role, 'manageMasterData');
   const scrollPad = useTabScrollPadding(28);
   const [unit, setUnit] = useState<any>(null);
+  const unitRef = useRef<any>(null);
+  unitRef.current = unit;
   const [history, setHistory] = useState<any[]>([]);
   const [labelUri, setLabelUri] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -53,23 +56,28 @@ export default function UnitDetailScreen({ route, navigation }: any) {
   const [testingMsg, setTestingMsg] = useState('');
   const [testingSavingStatus, setTestingSavingStatus] = useState<string | null>(null);
 
-  const load = async () => {
-    setError('');
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) {
+      setError('');
+      setLoading(true);
+    }
     try {
       const [u, h] = await Promise.all([inventoryApi.unit(id), inventoryApi.history('unit', id)]);
       setUnit(u.data);
       setHistory(h.data);
-      setLabelUri(null);
       if (u.data.barcode_value) {
         try {
           const detail = await barcodeApi.get(u.data.barcode_value);
-          if (detail.data.label_image_base64) {
-            setLabelUri(`data:image/png;base64,${detail.data.label_image_base64}`);
-          }
+          setLabelUri(
+            detail.data.label_image_base64
+              ? `data:image/png;base64,${detail.data.label_image_base64}`
+              : null
+          );
         } catch {
-          /* label optional */
+          setLabelUri(null);
         }
+      } else {
+        setLabelUri(null);
       }
     } catch (e) {
       setError(getErrorMessage(e));
@@ -78,9 +86,13 @@ export default function UnitDetailScreen({ route, navigation }: any) {
     }
   };
 
-  useEffect(() => {
-    if (id) load();
-  }, [id]);
+  // Reload on focus so status is fresh after a withdrawal / transfer from this screen.
+  useFocusEffect(
+    useCallback(() => {
+      if (id) void load(unitRef.current != null);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id])
+  );
 
   useEffect(() => {
     if (unit?.unit_code) navigation.setOptions({ title: unit.unit_code });
@@ -149,7 +161,7 @@ export default function UnitDetailScreen({ route, navigation }: any) {
   };
 
   if (loading) return <DetailSkeleton />;
-  if (error || !unit) return <ErrorState message={error || 'Not found'} onRetry={load} />;
+  if (error || !unit) return <ErrorState message={error || 'Not found'} onRetry={() => load()} />;
 
   const alloc = (unit.allocations || []).find((a: any) => a.is_active && a.allocation_type === 'ACTUAL');
   const location = alloc

@@ -62,6 +62,13 @@ class StaffUserCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError('Username already taken')
         return username
 
+    def validate_email(self, value):
+        email = (value or '').strip()
+        # Login also accepts email, so it must identify exactly one account.
+        if email and User.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError('Email already in use')
+        return email
+
     def validate_role(self, value):
         role = (value or '').strip().upper()
         if role not in ADMIN_CREATABLE_ROLES:
@@ -95,6 +102,15 @@ class StaffUserUpdateSerializer(serializers.Serializer):
     role = serializers.CharField(required=False)
     is_active = serializers.BooleanField(required=False)
     password = serializers.CharField(min_length=6, write_only=True, required=False)
+
+    def validate_email(self, value):
+        email = (value or '').strip()
+        clash = User.objects.filter(email__iexact=email)
+        if self.instance is not None:
+            clash = clash.exclude(pk=self.instance.pk)
+        if email and clash.exists():
+            raise serializers.ValidationError('Email already in use')
+        return email
 
     def validate_role(self, value):
         role = (value or '').strip().upper()
@@ -205,12 +221,13 @@ class LoginSerializer(serializers.Serializer):
             password=attrs['password'],
         )
         if not user or not user.is_active:
-            # also try email login
-            try:
-                u = User.objects.get(email__iexact=attrs['username'])
-                user = authenticate(username=u.username, password=attrs['password'])
-            except User.DoesNotExist:
-                user = None
+            # Also try email login — only when the email identifies exactly one account.
+            matches = list(User.objects.filter(email__iexact=attrs['username'])[:2])
+            user = (
+                authenticate(username=matches[0].username, password=attrs['password'])
+                if len(matches) == 1
+                else None
+            )
         if not user or not user.is_active:
             raise serializers.ValidationError('Invalid credentials')
         attrs['user'] = user

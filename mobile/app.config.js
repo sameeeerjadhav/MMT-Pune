@@ -22,6 +22,18 @@ module.exports = () => {
     }
   }
 
+  // Local testing without editing app.json:
+  //   $env:EXPO_PREFER_LOCAL_API='1'; npx expo start
+  // makes Expo Go call the LAN backend (runserver 0.0.0.0:8000) instead of apiUrl.
+  if (process.env.EXPO_PREFER_LOCAL_API === '1') {
+    expo.extra = { ...(expo.extra || {}), preferRemoteApiInDev: false };
+  }
+  // Point the app at any backend (e.g. an isolated test server) without editing app.json:
+  //   $env:EXPO_API_URL='http://localhost:8010/api'; npx expo start --web
+  if (process.env.EXPO_API_URL) {
+    expo.extra = { ...(expo.extra || {}), apiUrl: process.env.EXPO_API_URL, preferRemoteApiInDev: true };
+  }
+
   const plugins = Array.isArray(expo.plugins) ? [...expo.plugins] : [];
   if (!plugins.includes('expo-font')) plugins.push('expo-font');
   expo.plugins = plugins;

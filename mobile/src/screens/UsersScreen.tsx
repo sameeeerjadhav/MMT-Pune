@@ -92,7 +92,8 @@ export default function UsersScreen() {
       });
       if (opts?.signal?.cancelled) return;
       setRows(data);
-      hasRows.current = data.length > 0;
+      // "Loaded once", not "has rows": an empty search must stay a soft reload so the search box keeps focus.
+      hasRows.current = true;
     } catch (e) {
       if (opts?.signal?.cancelled) return;
       setError(getErrorMessage(e));
@@ -446,7 +447,7 @@ export default function UsersScreen() {
         contentContainerStyle={{ paddingBottom: scrollPad }}
         ListHeaderComponent={header}
         ListEmptyComponent={
-          !loading ? <Muted>No users yet. Tap + Add user.</Muted> : null
+          !loading ? <Muted>No users yet. Tap + Add user.</Muted> : undefined
         }
         renderItem={({ item }) => {
           const active = item.is_active !== false;

@@ -122,14 +122,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     const refresh = await storage.getItem('refreshToken');
-    try {
-      if (refresh) await authApi.logout(refresh);
-    } catch {
-      // ignore
-    }
+    const access = await storage.getItem('accessToken');
     await storage.deleteItem('accessToken');
     await storage.deleteItem('refreshToken');
     setUser(null);
+    // Server-side blacklist is best effort; never make sign-out wait on the network.
+    if (refresh) authApi.logout(refresh, access).catch(() => {});
   }, []);
 
   // Stable identity — must not recreate when `user` changes (avoids focus-effect loops).

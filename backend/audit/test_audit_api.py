@@ -25,6 +25,15 @@ class AuditLogApiTests(WarehouseTestMixin, TestCase):
         self.assertEqual(self.get(api=self.emp_api).status_code, 403)
         self.assertEqual(self.get().status_code, 200)
 
+    def test_facets_are_unique_for_repeated_actions(self):
+        # Same action at different timestamps must yield one facet entry.
+        AuditLog.objects.create(user=self.admin, action='LOGIN', entity_type='User', entity_id=self.admin.id)
+        AuditLog.objects.create(user=self.admin, action='LOGIN', entity_type='User', entity_id=self.admin.id)
+        facets = self.get().data['facets']
+        self.assertEqual(facets['actions'].count('LOGIN'), 1)
+        self.assertEqual(len(facets['actions']), len(set(facets['actions'])))
+        self.assertEqual(len(facets['entity_types']), len(set(facets['entity_types'])))
+
     def test_shape_and_facets(self):
         res = self.get()
         self.assertEqual(res.data['count'], 3)

@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 from django.db.models import Sum
@@ -26,6 +26,10 @@ def _ensure_destination_active(position: RackPosition):
 @transaction.atomic
 def deallocate_stock(*, allocation_id, user, reason=''):
     """Soft-remove an active ACTUAL allocation (stock remains available, not on a rack)."""
+    try:
+        allocation_id = int(allocation_id)
+    except (TypeError, ValueError):
+        raise ApiError('VALIDATION_ERROR', 'Invalid allocation id')
     alloc = (
         StockAllocation.objects.select_for_update()
         .select_related('batch', 'unit', 'position')
@@ -72,11 +76,12 @@ def create_floor(
     description='',
 ):
     warehouse = Warehouse.objects.get(pk=warehouse_id)
+    code = code.strip().upper()
     if Floor.objects.filter(warehouse=warehouse, code=code).exists():
         raise ApiError('DUPLICATE', f'Floor {code} already exists in this warehouse', status_code=409)
     return Floor.objects.create(
         warehouse=warehouse,
-        code=code.upper(),
+        code=code,
         name=name,
         level=level,
         row_count=row_count,
@@ -341,6 +346,11 @@ def create_rack(*, warehouse_id, code, name, shelves=None, floor_id=None, row_in
         if floor.warehouse_id != warehouse.id:
             raise ApiError('VALIDATION_ERROR', 'Floor must belong to the selected warehouse')
 
+    code = code.strip()
+    if Rack.objects.filter(warehouse=warehouse, code__iexact=code).exists():
+        raise ApiError(
+            'DUPLICATE', f'Rack {code} already exists in {warehouse.code}', status_code=409
+        )
     rack = Rack.objects.create(warehouse=warehouse, floor=floor, code=code, name=name)
     if floor_id and row_index is not None and column_index is not None:
         place_rack_on_floor(
@@ -502,15 +512,39 @@ def _merge_or_create_batch_allocation(*, batch, position, qty: Decimal):
     )
 
 
+def _get_by_id(qs, pk, *, label):
+    """Fetch by id; bad or unknown ids become 400/404 instead of a 500."""
+    try:
+        return qs.get(pk=int(pk))
+    except (TypeError, ValueError):
+        raise ApiError('VALIDATION_ERROR', f'Invalid {label.lower()} id')
+    except qs.model.DoesNotExist:
+        raise ApiError('NOT_FOUND', f'{label} not found', status_code=404)
+
+
+def _parse_decimal(value, *, message='Quantity must be a number') -> Decimal:
+    try:
+        qty = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        raise ApiError('INVALID_QTY', message)
+    if not qty.is_finite():
+        raise ApiError('INVALID_QTY', message)
+    return qty
+
+
 @transaction.atomic
 def allocate_stock(*, position_id, user, batch_id=None, unit_id=None, quantity=None, allocation_type='ACTUAL'):
     if bool(batch_id) == bool(unit_id):
         raise ApiError('VALIDATION_ERROR', 'Provide exactly one of batch_id or unit_id')
-    position = RackPosition.objects.select_related('shelf__rack__warehouse').get(pk=position_id)
+    if allocation_type not in StockAllocation.AllocationType.values:
+        raise ApiError('VALIDATION_ERROR', f'Invalid allocation_type: {allocation_type}')
+    position = _get_by_id(
+        RackPosition.objects.select_related('shelf__rack__warehouse'), position_id, label='Position'
+    )
     _ensure_destination_active(position)
 
     if batch_id:
-        batch = InventoryBatch.objects.select_for_update().get(pk=batch_id)
+        batch = _get_by_id(InventoryBatch.objects.select_for_update(), batch_id, label='Batch')
         if batch.testing_status == 'FAILED':
             raise ApiError('INELIGIBLE', 'Cannot allocate failed inventory')
         if batch.testing_status == 'PENDING':
@@ -520,7 +554,7 @@ def allocate_stock(*, position_id, user, batch_id=None, unit_id=None, quantity=N
                 'VALIDATION_ERROR',
                 'quantity is required for batch allocate (avoids moving the whole batch by mistake)',
             )
-        qty = Decimal(str(quantity))
+        qty = _parse_decimal(quantity)
         if qty <= 0 or qty > batch.available_qty:
             raise ApiError('INVALID_QTY', 'Invalid allocation quantity')
 
@@ -576,7 +610,7 @@ def allocate_stock(*, position_id, user, batch_id=None, unit_id=None, quantity=N
         )
         return allocation
 
-    unit = InventoryUnit.objects.select_for_update().get(pk=unit_id)
+    unit = _get_by_id(InventoryUnit.objects.select_for_update(), unit_id, label='Unit')
     if unit.status != 'AVAILABLE':
         raise ApiError(
             'INELIGIBLE',
@@ -612,24 +646,17 @@ def allocate_stock(*, position_id, user, batch_id=None, unit_id=None, quantity=N
 def transfer_stock(*, from_position_id, to_position_id, user, batch_id=None, unit_id=None, quantity=None, reason=''):
     if bool(batch_id) == bool(unit_id):
         raise ApiError('VALIDATION_ERROR', 'Provide exactly one of batch_id or unit_id')
-    from_pos = (
-        RackPosition.objects.select_for_update()
-        .select_related('shelf__rack__warehouse')
-        .get(pk=from_position_id)
-    )
-    to_pos = (
-        RackPosition.objects.select_for_update()
-        .select_related('shelf__rack__warehouse')
-        .get(pk=to_position_id)
-    )
+    positions = RackPosition.objects.select_for_update().select_related('shelf__rack__warehouse')
+    from_pos = _get_by_id(positions, from_position_id, label='Source position')
+    to_pos = _get_by_id(positions, to_position_id, label='Destination position')
     if from_pos.id == to_pos.id:
         raise ApiError('VALIDATION_ERROR', 'Source and destination must differ')
     # Allow moving stock *off* inactive locations; block putting it onto inactive ones.
     _ensure_destination_active(to_pos)
 
     if batch_id:
-        batch = InventoryBatch.objects.select_for_update().get(pk=batch_id)
-        qty = Decimal(str(quantity or 0))
+        batch = _get_by_id(InventoryBatch.objects.select_for_update(), batch_id, label='Batch')
+        qty = _parse_decimal(quantity or 0)
         if qty <= 0:
             raise ApiError('INVALID_QTY', 'Quantity required for batch transfer')
         source_alloc = (
@@ -684,7 +711,7 @@ def transfer_stock(*, from_position_id, to_position_id, user, batch_id=None, uni
             notes=reason,
         )
     else:
-        unit = InventoryUnit.objects.select_for_update().get(pk=unit_id)
+        unit = _get_by_id(InventoryUnit.objects.select_for_update(), unit_id, label='Unit')
         source_alloc = (
             StockAllocation.objects.select_for_update()
             .filter(

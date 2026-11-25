@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Easing,
   Modal,
@@ -59,7 +60,7 @@ export default function RackMapScreen({ route, navigation }: any) {
   const canEditLayout = canAccess(user?.role, 'editFloorLayout') || canAccess(user?.role, 'createRack');
   const scrollPad = useTabScrollPadding(28);
   const loadSeq = useRef(0);
-  const scrollRef = useRef<ScrollView | null>(null);
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const cellCardY = useRef(0);
   const scrollOffset = useRef(0);
   const pendingCellScroll = useRef(false);
@@ -542,23 +543,41 @@ export default function RackMapScreen({ route, navigation }: any) {
                   label="Deallocate selected stock"
                   variant="ghost"
                   loading={deallocating}
-                  onPress={async () => {
-                    setDeallocating(true);
-                    setActionMsg('');
-                    setError('');
-                    try {
-                      await warehouseApi.deallocate({
-                        allocation_id: selectedStock.allocation_id,
-                        reason: 'Mobile deallocate',
-                      });
-                      setActionMsg('Stock removed from this cell');
-                      setSelectedStockId(null);
-                      await load();
-                    } catch (e) {
-                      setError(getErrorMessage(e));
-                    } finally {
-                      setDeallocating(false);
+                  onPress={() => {
+                    const allocationId = selectedStock.allocation_id;
+                    const runDeallocate = async () => {
+                      setDeallocating(true);
+                      setActionMsg('');
+                      setError('');
+                      try {
+                        await warehouseApi.deallocate({
+                          allocation_id: allocationId,
+                          reason: 'Mobile deallocate',
+                        });
+                        setActionMsg('Stock removed from this cell');
+                        setSelectedStockId(null);
+                        await load();
+                      } catch (e) {
+                        setError(getErrorMessage(e));
+                      } finally {
+                        setDeallocating(false);
+                      }
+                    };
+                    if (Platform.OS === 'web') {
+                      // Alert.alert buttons are a no-op on react-native-web.
+                      if ((globalThis as any).confirm?.('Remove stock from this cell?')) {
+                        void runDeallocate();
+                      }
+                      return;
                     }
+                    Alert.alert(
+                      'Remove stock from this cell?',
+                      'The stock stays in inventory but will no longer be assigned to this position.',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Remove', style: 'destructive', onPress: () => void runDeallocate() },
+                      ]
+                    );
                   }}
                 />
               </View>
@@ -626,6 +645,7 @@ export default function RackMapScreen({ route, navigation }: any) {
                 color: colors.text,
               }}
             />
+            {error ? <Text style={{ color: colors.danger, marginTop: 12 }}>{error}</Text> : null}
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
               <View style={{ flex: 1 }}>
                 <Button label="Cancel" variant="ghost" onPress={() => setEditOpen(false)} />

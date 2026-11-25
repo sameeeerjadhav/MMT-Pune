@@ -489,6 +489,7 @@ export default function FloorMapScreen({ route, navigation }: any) {
                 color: colors.text,
               }}
             />
+            {error ? <Text style={{ color: colors.danger, marginTop: 12 }}>{error}</Text> : null}
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
               <View style={{ flex: 1 }}>
                 <Button label="Cancel" variant="ghost" onPress={() => setEditOpen(false)} />
@@ -541,6 +542,7 @@ export default function FloorMapScreen({ route, navigation }: any) {
                 ))
               )}
             </ScrollView>
+            {error ? <Text style={{ color: colors.danger, marginTop: 12 }}>{error}</Text> : null}
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
               <View style={{ flex: 1 }}>
                 <Button label="Cancel" variant="ghost" onPress={() => setPlaceOpen(false)} />

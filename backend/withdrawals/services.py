@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 from django.db.models import F
@@ -56,6 +56,29 @@ def _reduce_batch_allocations(batch: InventoryBatch, qty: Decimal) -> None:
             alloc.save(update_fields=['quantity', 'updated_at'])
 
 
+def _get_stock(model, pk, *, label, for_update=False):
+    """Fetch a batch/unit by id; bad or unknown ids become 400/404 instead of a 500."""
+    qs = model.objects.select_related('item')
+    if for_update:
+        qs = qs.select_for_update()
+    try:
+        return qs.get(pk=int(pk))
+    except (TypeError, ValueError):
+        raise ApiError('VALIDATION_ERROR', f'Invalid {label.lower()} id')
+    except model.DoesNotExist:
+        raise ApiError('NOT_FOUND', f'{label} not found', status_code=404)
+
+
+def _parse_qty(quantity) -> Decimal:
+    try:
+        qty = Decimal(str(quantity or 0))
+    except (InvalidOperation, ValueError):
+        raise ApiError('INVALID_QTY', 'Quantity must be a number')
+    if not qty.is_finite() or qty <= 0:
+        raise ApiError('INVALID_QTY', 'Quantity must be positive')
+    return qty
+
+
 def _deactivate_unit_allocations(unit: InventoryUnit) -> None:
     StockAllocation.objects.filter(
         unit=unit, allocation_type='ACTUAL', is_active=True
@@ -66,10 +89,7 @@ def _deactivate_unit_allocations(unit: InventoryUnit) -> None:
 def validate_withdrawal(*, batch_id=None, unit_id=None, quantity=None):
     """Read-only validation — no ledger writes and no row locks."""
     if batch_id:
-        try:
-            batch = InventoryBatch.objects.select_related('item').get(pk=batch_id)
-        except InventoryBatch.DoesNotExist:
-            raise ApiError('NOT_FOUND', 'Batch not found', status_code=404)
+        batch = _get_stock(InventoryBatch, batch_id, label='Batch')
         if batch.testing_status == 'FAILED':
             raise ApiError('INELIGIBLE', 'Cannot withdraw failed inventory')
         if batch.testing_status == 'PENDING':
@@ -81,9 +101,7 @@ def validate_withdrawal(*, batch_id=None, unit_id=None, quantity=None):
                 details={'available': '0', 'withdrawn_qty': str(batch.withdrawn_qty)},
                 status_code=409,
             )
-        qty = Decimal(str(quantity or 0))
-        if qty <= 0:
-            raise ApiError('INVALID_QTY', 'Quantity must be positive')
+        qty = _parse_qty(quantity)
         if qty > batch.available_qty:
             raise ApiError(
                 'INSUFFICIENT_STOCK',
@@ -104,10 +122,7 @@ def validate_withdrawal(*, batch_id=None, unit_id=None, quantity=None):
         }
 
     if unit_id:
-        try:
-            unit = InventoryUnit.objects.select_related('item').get(pk=unit_id)
-        except InventoryUnit.DoesNotExist:
-            raise ApiError('NOT_FOUND', 'Unit not found', status_code=404)
+        unit = _get_stock(InventoryUnit, unit_id, label='Unit')
         if unit.status == 'WITHDRAWN':
             raise ApiError(
                 'ALREADY_WITHDRAWN',
@@ -152,7 +167,7 @@ def create_withdrawal(
         raise ApiError('VALIDATION_ERROR', 'Provide exactly one of batch_id or unit_id')
 
     if batch_id:
-        batch = InventoryBatch.objects.select_for_update().select_related('item').get(pk=batch_id)
+        batch = _get_stock(InventoryBatch, batch_id, label='Batch', for_update=True)
         if batch.testing_status == 'FAILED':
             raise ApiError('INELIGIBLE', 'Cannot withdraw failed inventory')
         if batch.testing_status == 'PENDING':
@@ -163,9 +178,7 @@ def create_withdrawal(
                 'This batch has no remaining quantity — it cannot be withdrawn again',
                 status_code=409,
             )
-        qty = Decimal(str(quantity or 0))
-        if qty <= 0:
-            raise ApiError('INVALID_QTY', 'Quantity must be positive')
+        qty = _parse_qty(quantity)
         if qty > batch.available_qty:
             raise ApiError('INSUFFICIENT_STOCK', 'Insufficient available quantity')
 
@@ -219,7 +232,7 @@ def create_withdrawal(
             )
         return withdrawal
 
-    unit = InventoryUnit.objects.select_for_update().select_related('item').get(pk=unit_id)
+    unit = _get_stock(InventoryUnit, unit_id, label='Unit', for_update=True)
     if unit.status == 'WITHDRAWN':
         raise ApiError(
             'ALREADY_WITHDRAWN',

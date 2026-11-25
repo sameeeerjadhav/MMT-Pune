@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { API_BASE_URL } from '../api/client';
+import { API_BASE_URL, refreshAccessTokenOnce } from '../api/client';
 import * as storage from './secureStorage';
 
 function ensureFileUri(uri: string) {
@@ -30,9 +30,15 @@ export async function downloadAndShareFile(path: string, filename: string, kind:
   const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
   const target = ensureFileUri(`${dir}${safeName}`);
 
-  const result = await FileSystem.downloadAsync(url, target, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const download = (bearer: string | null) =>
+    FileSystem.downloadAsync(url, target, {
+      headers: bearer ? { Authorization: `Bearer ${bearer}` } : {},
+    });
+  let result = await download(token);
+  if (result.status === 401) {
+    const fresh = await refreshAccessTokenOnce();
+    if (fresh) result = await download(fresh);
+  }
   if (result.status < 200 || result.status >= 300) {
     throw new Error(`Export failed (${result.status})`);
   }

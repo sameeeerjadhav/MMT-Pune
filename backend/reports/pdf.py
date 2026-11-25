@@ -1,4 +1,5 @@
 from io import BytesIO
+from xml.sax.saxutils import escape
 
 from django.utils import timezone
 from reportlab.lib import colors
@@ -80,14 +81,14 @@ def build_withdrawal_receipt_pdf(withdrawal) -> bytes:
         Paragraph(f'Withdrawal Receipt #{withdrawal.id}', styles['Title']),
         Paragraph('Airport Equipment Manufacturing — Warehouse', styles['Normal']),
         Spacer(1, 6 * mm),
-        Paragraph(f'<b>Purpose:</b> {withdrawal.purpose}', styles['Normal']),
-        Paragraph(f'<b>Reference:</b> {withdrawal.reference or "—"}', styles['Normal']),
-        Paragraph(f'<b>Notes:</b> {withdrawal.notes or "—"}', styles['Normal']),
+        Paragraph(f'<b>Purpose:</b> {escape(withdrawal.purpose)}', styles['Normal']),
+        Paragraph(f'<b>Reference:</b> {escape(withdrawal.reference or "—")}', styles['Normal']),
+        Paragraph(f'<b>Notes:</b> {escape(withdrawal.notes or "—")}', styles['Normal']),
         Paragraph(
-            f'<b>Performed by:</b> {user.get_full_name() or user.username} '
-            f'(@{user.username}'
-            + (f', {role}' if role else '')
-            + (f', emp {user.employee_id}' if getattr(user, 'employee_id', None) else '')
+            f'<b>Performed by:</b> {escape(user.get_full_name() or user.username)} '
+            f'(@{escape(user.username)}'
+            + (f', {escape(role)}' if role else '')
+            + (f', emp {escape(user.employee_id)}' if getattr(user, 'employee_id', None) else '')
             + ')',
             styles['Normal'],
         ),

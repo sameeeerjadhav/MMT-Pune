@@ -20,6 +20,8 @@ from barcodes.services import (
     render_label_png_bytes,
 )
 from config.exceptions import ApiError
+from inventory.models import InventoryBatch, InventoryUnit
+from warehouses.models import Rack
 
 
 class PrinterSerializer(serializers.ModelSerializer):
@@ -129,10 +131,16 @@ class GenerateBarcodeView(APIView):
             raise ApiError('VALIDATION_ERROR', 'entity_id must be a positive integer')
         if entity_id_int <= 0:
             raise ApiError('VALIDATION_ERROR', 'entity_id must be a positive integer')
+        label_data = request.data.get('label_data') or {}
+        if not isinstance(label_data, dict):
+            raise ApiError('VALIDATION_ERROR', 'label_data must be an object')
         existing = Barcode.objects.filter(entity_type=entity_type, entity_id=entity_id_int).first()
         if existing:
             return Response(BarcodeSerializer(existing).data)
-        barcode = create_barcode(entity_type, entity_id_int, request.data.get('label_data') or {})
+        target_model = {'BATCH': InventoryBatch, 'UNIT': InventoryUnit, 'RACK': Rack}[entity_type]
+        if not target_model.objects.filter(pk=entity_id_int).exists():
+            raise ApiError('NOT_FOUND', f'{entity_type.title()} {entity_id_int} not found', status_code=404)
+        barcode = create_barcode(entity_type, entity_id_int, label_data)
         return Response(BarcodeSerializer(barcode).data, status=status.HTTP_201_CREATED)
 
 
@@ -209,8 +217,8 @@ class PrintLogView(APIView):
         log = PrintLog.objects.create(
             barcode=barcode,
             user=request.user,
-            printer=request.data.get('printer', ''),
-            notes=request.data.get('notes', ''),
+            printer=str(request.data.get('printer') or '')[:100],
+            notes=str(request.data.get('notes') or '')[:255],
         )
         return Response({'id': log.id, 'created_at': log.created_at}, status=status.HTTP_201_CREATED)
 

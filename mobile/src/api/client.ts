@@ -47,16 +47,33 @@ async function refreshAccessToken(): Promise<string | null> {
   const refresh = await storage.getItem('refreshToken');
   if (!refresh) return null;
   try {
-    const { data } = await axios.post(`${API_BASE_URL}/auth/refresh/`, { refresh });
+    const { data } = await axios.post(
+      `${API_BASE_URL}/auth/refresh/`,
+      { refresh },
+      { timeout: 20000 }
+    );
     await storage.setItem('accessToken', data.access);
     if (data.refresh) await storage.setItem('refreshToken', data.refresh);
     return data.access as string;
-  } catch {
+  } catch (e) {
+    // Only a rejected refresh token ends the session; network blips keep it for a later retry.
+    const status = (e as { response?: { status?: number } })?.response?.status;
+    if (status !== 400 && status !== 401 && status !== 403) return null;
     await storage.deleteItem('accessToken');
     await storage.deleteItem('refreshToken');
     onAuthFailure?.();
     return null;
   }
+}
+
+/** Refresh the access token once (shared with in-flight refreshes); used outside axios, e.g. file downloads. */
+export function refreshAccessTokenOnce(): Promise<string | null> {
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
 }
 
 api.interceptors.request.use(async (config) => {
@@ -82,12 +99,7 @@ api.interceptors.response.use(
     const skipRefresh = url.includes('/auth/login/') || url.includes('/auth/refresh/');
     if (error.response?.status === 401 && original && !original._retry && !skipRefresh) {
       original._retry = true;
-      if (!refreshPromise) {
-        refreshPromise = refreshAccessToken().finally(() => {
-          refreshPromise = null;
-        });
-      }
-      const access = await refreshPromise;
+      const access = await refreshAccessTokenOnce();
       if (access) {
         original.headers.Authorization = `Bearer ${access}`;
         return api(original);
@@ -134,9 +146,14 @@ export function getErrorMessage(error: unknown): string {
     if (Array.isArray(details)) return details.map(String).join('; ');
     if (details && typeof details === 'object') {
       const parts = Object.entries(details as Record<string, unknown>).map(([key, value]) => {
-        if (Array.isArray(value)) return `${key}: ${value.join(', ')}`;
-        if (value && typeof value === 'object') return `${key}: ${JSON.stringify(value)}`;
-        return `${key}: ${String(value)}`;
+        const text = Array.isArray(value)
+          ? value.join(', ')
+          : value && typeof value === 'object'
+            ? JSON.stringify(value)
+            : String(value);
+        if (key === 'non_field_errors' || key === 'detail') return text;
+        const label = key.replace(/_/g, ' ');
+        return `${label.charAt(0).toUpperCase()}${label.slice(1)}: ${text}`;
       });
       if (parts.length) return parts.join('; ');
     }

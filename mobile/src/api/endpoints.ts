@@ -3,7 +3,12 @@ import { api } from './client';
 export const authApi = {
   login: (username: string, password: string) =>
     api.post('/auth/login/', { username, password }),
-  logout: (refresh: string) => api.post('/auth/logout/', { refresh }),
+  logout: (refresh: string, access?: string | null) =>
+    api.post(
+      '/auth/logout/',
+      { refresh },
+      access ? { headers: { Authorization: `Bearer ${access}` } } : undefined
+    ),
   profile: () => api.get('/auth/profile/'),
   updateProfile: (payload: Record<string, unknown>) => api.patch('/auth/profile/', payload),
 };

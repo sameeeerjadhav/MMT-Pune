@@ -373,8 +373,10 @@ class InventoryHistoryView(APIView):
             'withdrawal',
         )
         if inv_type == 'batch':
+            get_object_or_404(InventoryBatch, pk=pk)
             qs = qs.filter(batch_id=pk)
         elif inv_type == 'unit':
+            get_object_or_404(InventoryUnit, pk=pk)
             qs = qs.filter(unit_id=pk)
         else:
             raise ApiError('VALIDATION_ERROR', 'type must be batch or unit')

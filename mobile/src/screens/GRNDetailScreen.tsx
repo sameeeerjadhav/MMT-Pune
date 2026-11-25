@@ -17,6 +17,7 @@ export default function GRNDetailScreen({ route, navigation }: any) {
   const [actionError, setActionError] = useState('');
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState('');
+  const [generating, setGenerating] = useState(false);
 
   const load = async () => {
     setError('');
@@ -68,7 +69,10 @@ export default function GRNDetailScreen({ route, navigation }: any) {
           <Button
             label="Generate missing barcodes"
             variant="secondary"
+            loading={generating}
             onPress={async () => {
+              if (generating) return;
+              setGenerating(true);
               setMsg('');
               setActionError('');
               try {
@@ -77,6 +81,8 @@ export default function GRNDetailScreen({ route, navigation }: any) {
                 setGrn(data.grn);
               } catch (e) {
                 setActionError(getErrorMessage(e));
+              } finally {
+                setGenerating(false);
               }
             }}
           />
