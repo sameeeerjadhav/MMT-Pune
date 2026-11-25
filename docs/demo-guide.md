@@ -33,20 +33,20 @@ Open http://localhost:8082 (requires CORS origins for 8082 in `.env`).
 
 | Role | Primary tabs | Key powers |
 |------|--------------|------------|
-| Employee | Home · Scan · Out · Stock · More | Scan, allocate, transfer, withdraw. **No** import, reports, FIFO override |
-| Supervisor | Home · Scan · GRN · Racks · More | Import GRN, create racks, reports, FIFO override |
-| Admin | Home · Stock · GRN · Reports · More | Full control + reports |
+| Employee | Home · Out · Scanner · Stock · More | Scan, allocate, transfer, withdraw. **No** import, reports, FIFO override |
+| Supervisor | Home · Stock · Scanner · GRN · More | Import GRN, create racks, reports, FIFO override (Racks map and Reports under More) |
+| Admin | Home · Stock · Scanner · Floors · More | Full control (GRN, Reports, Users under More) |
 
 ## Walkthrough script (~12 minutes)
 
 1. **Login as employee** — show floor tabs (no Reports). Dashboard metrics from PostgreSQL.
 2. **Scan** — Simulate BATCH-002. Show Steel Bolt + FIFO risk if older stock remains.
 3. **Out (Withdrawal)** — try qty 5 on BATCH-002 → **FIFO VIOLATION**. Confirm employee cannot override.
-4. **Sign out → Login as supervisor** — tabs now include GRN + Racks.
+4. **Sign out → Login as supervisor** — tabs now include GRN; Racks map is under More.
 5. **Withdrawal** — same BATCH-002 with override reason → success + confirmation.
 6. **GRN** — open GRN-1001 / GRN-1002; show Import button; import sample, then re-import → duplicate rejected.
-7. **Racks** — WH-MAIN → R-01; allocate / transfer with pickers.
-8. **Sign out → Login as admin** — Reports tab visible.
+7. **Floors** — WH-MAIN → R-01; allocate / transfer with pickers.
+8. **Sign out → Login as admin** — Floors tab visible; Reports under More.
 9. **Inventory / Stock** — BATCH-001 & BATCH-002; Code 128 label preview.
 10. **Reports** — stock, occupancy, FIFO (readable rows).
 
