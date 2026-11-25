@@ -107,9 +107,14 @@ class AuditLogListView(APIView):
         if offset == 0:
             # Filter choices for the mobile chips — only computed for the first page.
             payload['facets'] = {
-                'actions': sorted(AuditLog.objects.values_list('action', flat=True).distinct()),
+                # order_by() clears Meta.ordering so DISTINCT runs on the column only.
+                'actions': sorted(
+                    AuditLog.objects.order_by().values_list('action', flat=True).distinct()
+                ),
                 'entity_types': sorted(
-                    t for t in AuditLog.objects.values_list('entity_type', flat=True).distinct() if t
+                    t
+                    for t in AuditLog.objects.order_by().values_list('entity_type', flat=True).distinct()
+                    if t
                 ),
             }
         return Response(payload)

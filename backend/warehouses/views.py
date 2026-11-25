@@ -65,6 +65,15 @@ def _include_inactive(request) -> bool:
     return _is_lead(request.user)
 
 
+def _id_param(request, name):
+    value = (request.query_params.get(name) or '').strip()
+    if not value:
+        return None
+    if not value.isdigit():
+        raise ApiError('VALIDATION_ERROR', f'{name} must be a numeric id')
+    return int(value)
+
+
 class WarehouseListCreateView(generics.ListCreateAPIView):
     serializer_class = WarehouseSerializer
 
@@ -110,7 +119,7 @@ class FloorListCreateView(generics.ListCreateAPIView):
         qs = Floor.objects.select_related('warehouse').filter(is_active=True).order_by(
             'warehouse_id', 'level', 'code'
         )
-        warehouse_id = self.request.query_params.get('warehouse')
+        warehouse_id = _id_param(self.request, 'warehouse')
         if warehouse_id:
             qs = qs.filter(warehouse_id=warehouse_id)
         return qs
@@ -169,8 +178,8 @@ class RackListCreateView(generics.ListCreateAPIView):
             'shelves__positions'
         ).order_by('warehouse__code', 'code')
         q = self.request.query_params.get('q', '').strip()
-        warehouse_id = self.request.query_params.get('warehouse')
-        floor_id = self.request.query_params.get('floor')
+        warehouse_id = _id_param(self.request, 'warehouse')
+        floor_id = _id_param(self.request, 'floor')
         if warehouse_id:
             qs = qs.filter(warehouse_id=warehouse_id)
         if floor_id:
@@ -201,9 +210,9 @@ class RackListCreateView(generics.ListCreateAPIView):
             code=data['code'],
             name=(data.get('name') or data['code']),
             shelves=data.get('shelves'),
-            floor_id=self.request.data.get('floor_id') or self.request.data.get('floor'),
-            row_index=self.request.data.get('row_index'),
-            column_index=self.request.data.get('column_index'),
+            floor_id=data.get('floor_id') or data.get('floor'),
+            row_index=data.get('row_index'),
+            column_index=data.get('column_index'),
         )
         return Response(RackSerializer(rack).data, status=status.HTTP_201_CREATED)
 
@@ -243,6 +252,7 @@ class RackDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class RackInventoryView(APIView):
     def get(self, request, pk):
+        get_object_or_404(Rack, pk=pk)
         allocations = StockAllocation.objects.filter(
             is_active=True,
             allocation_type='ACTUAL',

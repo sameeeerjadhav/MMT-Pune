@@ -73,14 +73,25 @@ class ItemSerializer(serializers.ModelSerializer):
             validated_data['category'] = cat
         return validated_data
 
+    def validate_inventory_type(self, value):
+        item = self.instance
+        if item is not None and value != item.inventory_type:
+            if item.batches.exists() or item.units.exists():
+                raise serializers.ValidationError(
+                    'Cannot change BULK/UNIT type once stock has been received for this item'
+                )
+        return value
+
     def create(self, validated_data):
         validated_data = self._resolve_category(validated_data)
-        if 'category' not in validated_data:
+        if validated_data.get('category') is None:
             raise serializers.ValidationError({'category': 'category or category_code_input is required'})
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
         validated_data = self._resolve_category(validated_data)
+        if 'category' in validated_data and validated_data['category'] is None:
+            raise serializers.ValidationError({'category': 'Category cannot be empty'})
         return super().update(instance, validated_data)
 
 

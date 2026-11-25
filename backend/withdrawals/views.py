@@ -1,5 +1,6 @@
 from django.db.models import Q
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -83,10 +84,11 @@ class WithdrawalPdfView(APIView):
     permission_classes = [IsWarehouseStaff]
 
     def get(self, request, pk):
-        withdrawal = (
-            Withdrawal.objects.select_related('user', 'user__role')
-            .prefetch_related('lines__batch__item', 'lines__unit__item')
-            .get(pk=pk)
+        withdrawal = get_object_or_404(
+            Withdrawal.objects.select_related('user', 'user__role').prefetch_related(
+                'lines__batch__item', 'lines__unit__item'
+            ),
+            pk=pk,
         )
         pdf = build_withdrawal_receipt_pdf(withdrawal)
         response = HttpResponse(pdf, content_type='application/pdf')

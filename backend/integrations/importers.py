@@ -1,7 +1,8 @@
-from decimal import Decimal
+from datetime import date, datetime, time
+from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
-from django.utils.dateparse import parse_datetime
+from django.utils.dateparse import parse_date, parse_datetime
 from django.utils import timezone
 
 from barcodes.services import create_barcode, label_payload
@@ -11,27 +12,90 @@ from integrations.models import IntegrationLog
 from inventory.models import Category, InventoryBatch, InventoryTransaction, InventoryUnit, Item, Vendor
 
 
+TESTING_STATUSES = ('PENDING', 'PASSED', 'FAILED')
+
+
 def _parse_dt(value):
-    if hasattr(value, 'isoformat'):
-        return value
-    parsed = parse_datetime(str(value))
-    if parsed:
-        return parsed
-    return timezone.now()
+    """Missing → now; unreadable or impossible dates are rejected so FIFO order is never guessed."""
+    if not value:
+        return timezone.now()
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        parsed = datetime.combine(value, time.min)
+    else:
+        text = str(value).strip()
+        try:
+            parsed = parse_datetime(text)
+            if parsed is None:
+                day = parse_date(text)
+                parsed = datetime.combine(day, time.min) if day else None
+        except ValueError:
+            parsed = None
+        if parsed is None:
+            raise ApiError('VALIDATION_ERROR', f'Invalid received_date {value!r}')
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed)
+    return parsed
 
 
-@transaction.atomic
-def import_grn_payload(payload: dict, *, source='MOCK', system='MOCK'):
+def _clean_line(line, index):
+    if not isinstance(line, dict):
+        raise ApiError('VALIDATION_ERROR', f'Line {index} must be an object')
+    item_code = str(line.get('item_code') or '').strip()
+    if not item_code:
+        raise ApiError('VALIDATION_ERROR', f'Line {index}: item_code is required')
+    classification = str(line.get('classification') or '').strip().upper()
+    if classification not in ('BULK', 'UNIT'):
+        raise ApiError(
+            'VALIDATION_ERROR',
+            f'Invalid classification {line.get("classification")!r} for item {item_code}',
+        )
+    try:
+        qty = Decimal(str(line.get('received_qty')))
+    except (InvalidOperation, ValueError):
+        qty = None
+    if qty is None or not qty.is_finite() or qty <= 0:
+        raise ApiError('VALIDATION_ERROR', f'received_qty must be a positive number for {item_code}')
+    testing_status = str(line.get('testing_status') or 'PENDING').strip().upper()
+    if testing_status not in TESTING_STATUSES:
+        raise ApiError(
+            'VALIDATION_ERROR',
+            f'Invalid testing_status {line.get("testing_status")!r} for item {item_code}',
+            details={'allowed': list(TESTING_STATUSES)},
+        )
+    return item_code, classification, qty, testing_status
+
+
+def _validate_payload(payload: dict, system):
     grn_number = payload.get('grn_number')
     if not grn_number:
         raise ApiError('VALIDATION_ERROR', 'grn_number is required')
-
-    external_system = payload.get('external_system', system)
-    external_ref = payload.get('external_ref') or None
     lines = payload.get('lines') or []
-    if not lines:
+    if not isinstance(lines, list) or not lines:
         raise ApiError('VALIDATION_ERROR', 'GRN must include at least one line')
+    cleaned = [_clean_line(line, i + 1) for i, line in enumerate(lines)]
+    received_date = _parse_dt(payload.get('received_date'))
+    return grn_number, payload.get('external_system', system), cleaned, received_date
 
+
+def import_grn_payload(payload: dict, *, source='MOCK', system='MOCK'):
+    grn_number, external_system, cleaned, received_date = _validate_payload(payload, system)
+    external_ref = payload.get('external_ref') or None
+    # Duplicate logs are written outside the import transaction so the 409 does not roll them back.
+    _reject_duplicates(payload, source, external_system, external_ref, grn_number)
+    return _create_grn(
+        payload,
+        source=source,
+        external_system=external_system,
+        external_ref=external_ref,
+        grn_number=grn_number,
+        cleaned=cleaned,
+        received_date=received_date,
+    )
+
+
+def _reject_duplicates(payload, source, external_system, external_ref, grn_number):
     if external_ref:
         existing = GRN.objects.filter(
             external_system=external_system, external_ref=external_ref
@@ -62,6 +126,11 @@ def import_grn_payload(payload: dict, *, source='MOCK', system='MOCK'):
         )
         raise ApiError('DUPLICATE_GRN', f'GRN number {grn_number} already exists', status_code=409)
 
+
+@transaction.atomic
+def _create_grn(
+    payload, *, source, external_system, external_ref, grn_number, cleaned, received_date
+):
     vendor = None
     vendor_code = payload.get('vendor_code')
     vendor_name = payload.get('vendor_name')
@@ -70,26 +139,22 @@ def import_grn_payload(payload: dict, *, source='MOCK', system='MOCK'):
             code=vendor_code, defaults={'name': vendor_name or vendor_code}
         )
 
-    received_date = _parse_dt(payload.get('received_date') or timezone.now())
-
-    grn = GRN.objects.create(
-        grn_number=grn_number,
-        external_system=external_system,
-        external_ref=external_ref,
-        vendor=vendor,
-        received_date=received_date,
-        status='RECEIVED',
-        notes=payload.get('notes') or '',
-    )
-
-    for line in lines:
-        item_code = line['item_code']
-        classification = line['classification']
-        if classification not in ('BULK', 'UNIT'):
-            raise ApiError(
-                'VALIDATION_ERROR',
-                f'Invalid classification {classification!r} for item {item_code}',
+    try:
+        with transaction.atomic():
+            grn = GRN.objects.create(
+                grn_number=grn_number,
+                external_system=external_system,
+                external_ref=external_ref,
+                vendor=vendor,
+                received_date=received_date,
+                status='RECEIVED',
+                notes=payload.get('notes') or '',
             )
+    except IntegrityError:
+        # Lost a race with a concurrent import of the same GRN.
+        raise ApiError('DUPLICATE_GRN', f'GRN number {grn_number} already exists', status_code=409)
+
+    for line, (item_code, classification, qty, testing_status) in zip(payload['lines'], cleaned):
         category_code = line.get('category_code') or 'GEN'
         category, _ = Category.objects.get_or_create(
             code=category_code, defaults={'name': category_code}
@@ -115,10 +180,6 @@ def import_grn_payload(payload: dict, *, source='MOCK', system='MOCK'):
                 },
             )
 
-        qty = Decimal(str(line['received_qty']))
-        if qty <= 0:
-            raise ApiError('VALIDATION_ERROR', f'received_qty must be positive for {item_code}')
-        testing_status = line.get('testing_status') or 'PENDING'
         grn_line = GRNLine.objects.create(
             grn=grn,
             item=item,

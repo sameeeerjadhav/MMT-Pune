@@ -147,7 +147,10 @@ class CountDetailView(APIView):
 
 
 def _parse_scanned_at(raw):
-    parsed = parse_datetime(str(raw)) if raw else None
+    try:
+        parsed = parse_datetime(str(raw)) if raw else None
+    except ValueError:  # well-formed but impossible, e.g. 2026-02-30
+        parsed = None
     now = timezone.now()
     if parsed is None:
         return now

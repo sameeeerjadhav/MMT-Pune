@@ -15,6 +15,10 @@ class RackCreateSerializer(serializers.Serializer):
     code = serializers.CharField(max_length=50)
     name = serializers.CharField(max_length=150, required=False, allow_blank=True)
     shelves = serializers.JSONField(required=False)
+    floor_id = serializers.IntegerField(required=False, allow_null=True)
+    floor = serializers.IntegerField(required=False, allow_null=True)
+    row_index = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    column_index = serializers.IntegerField(required=False, allow_null=True, min_value=1)
 
 
 class FloorSerializer(serializers.ModelSerializer):
@@ -99,8 +103,13 @@ class RackSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         )
+        # Placement changes go through create / place-rack so floor rules are enforced.
         read_only_fields = (
             'id',
+            'warehouse',
+            'floor',
+            'row_index',
+            'column_index',
             'barcode',
             'barcode_value',
             'warehouse_code',
@@ -109,6 +118,17 @@ class RackSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         )
+
+    def validate_code(self, value):
+        code = value.strip()
+        rack = self.instance
+        if rack is not None and (
+            Rack.objects.filter(warehouse_id=rack.warehouse_id, code__iexact=code)
+            .exclude(pk=rack.pk)
+            .exists()
+        ):
+            raise serializers.ValidationError('A rack with this code already exists in this warehouse')
+        return code
 
 
 class RackTransferSerializer(serializers.ModelSerializer):
