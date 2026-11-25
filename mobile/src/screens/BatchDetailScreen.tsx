@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { inventoryApi, barcodeApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
@@ -40,6 +41,8 @@ export default function BatchDetailScreen({ route, navigation }: any) {
   const canManage = canAccess(user?.role, 'manageMasterData');
   const scrollPad = useTabScrollPadding(28);
   const [batch, setBatch] = useState<any>(null);
+  const batchRef = useRef<any>(null);
+  batchRef.current = batch;
   const [history, setHistory] = useState<any[]>([]);
   const [labelUri, setLabelUri] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -56,7 +59,11 @@ export default function BatchDetailScreen({ route, navigation }: any) {
   const [expirySaving, setExpirySaving] = useState(false);
   const [testingSavingStatus, setTestingSavingStatus] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const [b, h] = await Promise.all([inventoryApi.batch(id), inventoryApi.history('batch', id)]);
       setBatch(b.data);
@@ -82,9 +89,13 @@ export default function BatchDetailScreen({ route, navigation }: any) {
     }
   };
 
-  useEffect(() => {
-    if (id) load();
-  }, [id]);
+  // Reload on focus so quantities are fresh after a withdrawal / transfer from this screen.
+  useFocusEffect(
+    useCallback(() => {
+      if (id) void load(batchRef.current != null);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id])
+  );
 
   useEffect(() => {
     if (batch?.batch_code) navigation.setOptions({ title: batch.batch_code });
@@ -188,7 +199,7 @@ export default function BatchDetailScreen({ route, navigation }: any) {
 
   if (!id) return <ErrorState message="Missing batch id" />;
   if (loading) return <DetailSkeleton />;
-  if (error || !batch) return <ErrorState message={error || 'Not found'} onRetry={load} />;
+  if (error || !batch) return <ErrorState message={error || 'Not found'} onRetry={() => load()} />;
 
   const alloc = (batch.allocations || []).find((a: any) => a.is_active && a.allocation_type === 'ACTUAL');
   const label = batch.barcode_label_data || {};

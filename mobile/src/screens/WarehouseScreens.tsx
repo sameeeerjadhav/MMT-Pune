@@ -237,6 +237,7 @@ export function WarehouseListScreen({ navigation }: any) {
   const canCreate = canAccess(user?.role, 'createRack');
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [racks, setRacks] = useState<any[]>([]);
+  const [floors, setFloors] = useState<any[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<number | null>(null);
   const [rackQuery, setRackQuery] = useState('');
   const debouncedRackQuery = useDebouncedValue(rackQuery, 160);
@@ -268,17 +269,19 @@ export function WarehouseListScreen({ navigation }: any) {
         if (canManage) params.include_inactive = '1';
         const query = (q ?? debouncedRackQuery).trim();
         const whFilter = warehouseId !== undefined ? warehouseId : selectedWhRef.current;
-        const [wh, rackRes] = await Promise.all([
+        const [wh, rackRes, floorRes] = await Promise.all([
           warehouseApi.warehouses(params),
           warehouseApi.racks({
             ...params,
             q: query || undefined,
             warehouse: whFilter || undefined,
           }),
+          warehouseApi.floors().catch(() => ({ data: [] as any[] })),
         ]);
         if (seq !== loadSeq.current) return;
         setWarehouses(wh.data);
         setRacks(rackRes.data);
+        setFloors(Array.isArray(floorRes.data) ? floorRes.data : floorRes.data?.results || []);
         setSelectedWarehouse((prev) => {
           if (warehouseId !== undefined) {
             if (warehouseId == null) {
@@ -592,6 +595,35 @@ export function WarehouseListScreen({ navigation }: any) {
           );
         })}
       </Card>
+
+      {floors.some((f) => f.warehouse === selectedWarehouse) ? (
+        <Card>
+          <Subtitle>Floor maps</Subtitle>
+          {floors
+            .filter((f) => f.warehouse === selectedWarehouse)
+            .map((f, idx) => (
+              <Pressable
+                key={f.id}
+                onPress={() => navigation.navigate('FloorMap', { id: f.id })}
+                accessibilityRole="button"
+                accessibilityLabel={`Open floor ${f.code}`}
+                style={{
+                  paddingVertical: 10,
+                  borderTopWidth: idx === 0 ? 0 : StyleSheet.hairlineWidth,
+                  borderTopColor: colors.borderSoft,
+                }}
+              >
+                <Text style={{ fontWeight: '700', color: colors.navy }}>
+                  {f.code}
+                  {f.name && f.name !== f.code ? ` — ${f.name}` : ''}
+                </Text>
+                <Muted>
+                  {f.row_count}×{f.column_count} grid · {f.rack_count ?? 0} racks
+                </Muted>
+              </Pressable>
+            ))}
+        </Card>
+      ) : null}
 
       {showWhForm && canManage ? (
         <Card>
@@ -907,7 +939,7 @@ export function AllocateScreen({ route }: any) {
     try {
       const [loc, inv] = await Promise.all([
         warehouseApi.locations(),
-        inventoryApi.list({ q: sq.trim() || undefined }),
+        inventoryApi.list({ q: sq.trim() || undefined, testing_status: 'PASSED', limit: 200 }),
       ]);
       setLocations(loc.data || []);
       // Allocate only QA-passed stock that is still available to put away.
@@ -1088,6 +1120,10 @@ export function AllocateScreen({ route }: any) {
                   : 'Allocated successfully'
               );
               setError('');
+              setBatchId(null);
+              setUnitId(null);
+              setQuantity('');
+              void loadPickers({ stockQ: stockQRef.current });
             } catch (e) {
               setError(getErrorMessage(e));
               setMsg('');
@@ -1168,7 +1204,7 @@ export function TransferScreen({ route }: any) {
     try {
       const [loc, inv] = await Promise.all([
         warehouseApi.locations(),
-        inventoryApi.list({ q: sq.trim() || undefined }),
+        inventoryApi.list({ q: sq.trim() || undefined, limit: 200 }),
       ]);
       setLocations(loc.data || []);
       setBatches(inv.data.batches || []);
@@ -1329,6 +1365,12 @@ export function TransferScreen({ route }: any) {
                   : 'Transfer recorded'
               );
               setError('');
+              setBatchId(null);
+              setUnitId(null);
+              setQty('');
+              setFromId(null);
+              setToId(null);
+              void loadPickers({ stockQ: stockQRef.current });
             } catch (e) {
               setError(getErrorMessage(e));
               setMsg('');

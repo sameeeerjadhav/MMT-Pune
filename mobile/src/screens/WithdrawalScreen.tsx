@@ -117,6 +117,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
       return;
     }
 
+    setOverrideReason('');
     if (paramBatchId) {
       setBatchId(paramBatchId);
       setUnitId('');
@@ -166,7 +167,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
     try {
       const payload: any = {
         purpose,
-        override_reason: overrideReason || undefined,
+        override_reason: fifoBlocked ? overrideReason.trim() || undefined : undefined,
       };
       if (batchId) {
         payload.batch_id = Number(batchId);
@@ -176,7 +177,16 @@ export default function WithdrawalScreen({ route, navigation }: any) {
       }
       const { data } = await withdrawalApi.create(payload);
       setSuccess(`Withdrawal #${data.id} completed`);
-      await loadHistory();
+      setBatchId('');
+      setUnitId('');
+      setQuantity('');
+      setOverrideReason('');
+      setValidation(null);
+      // Drop the deep-link params so a later "Withdraw" for the same stock re-applies them.
+      if (paramBatchId || paramUnitId) {
+        navigation.setParams({ batchId: undefined, unitId: undefined });
+      }
+      void loadHistory({ soft: true });
       navigation.navigate('WithdrawalConfirm', { id: data.id });
     } catch (e: any) {
       const details = e?.response?.data?.details;
@@ -232,6 +242,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
               setBatchId(t);
               if (t) setUnitId('');
               setValidation(null);
+              setOverrideReason('');
             }}
             keyboardType="numeric"
           />
@@ -247,6 +258,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
               setUnitId(t);
               if (t) setBatchId('');
               setValidation(null);
+              setOverrideReason('');
             }}
             keyboardType="numeric"
           />
@@ -299,7 +311,7 @@ export default function WithdrawalScreen({ route, navigation }: any) {
               {validation.type} {validation.batch_code || validation.unit_code}
             </Text>
             {validation.available_qty ? <Text>Available: {validation.available_qty}</Text> : null}
-            {validation.location ? (
+            {validation.location?.warehouse ? (
               <Text>
                 Loc: {validation.location.warehouse}/{validation.location.rack}/{validation.location.shelf}/
                 {validation.location.position}

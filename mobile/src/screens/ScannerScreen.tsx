@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useIsFocused } from '@react-navigation/native';
 import { inventoryApi } from '../api/endpoints';
 import { getErrorMessage, SHOW_DEMO_TOOLS } from '../api/client';
 import { CameraIcon, ScanHeroIcon } from '../components/icons';
@@ -12,6 +13,8 @@ import { colors } from '../theme/tokens';
 export default function ScannerScreen({ navigation }: any) {
   const scrollPad = useTabScrollPadding(28);
   const [permission, requestPermission] = useCameraPermissions();
+  // Tabs stay mounted; only run the camera while this screen is visible.
+  const isFocused = useIsFocused();
   const [manual, setManual] = useState('');
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState('');
@@ -20,7 +23,7 @@ export default function ScannerScreen({ navigation }: any) {
   const inFlight = useRef(false);
 
   const lookup = async (code: string, source: string) => {
-    if (!code || inFlight.current) return;
+    if (!code?.trim() || inFlight.current) return;
     inFlight.current = true;
     setError('');
     setLoading(true);
@@ -51,7 +54,7 @@ export default function ScannerScreen({ navigation }: any) {
           <ScanHeroIcon size={72} />
         </View>
 
-        {permission?.granted && scanning ? (
+        {permission?.granted && scanning && isFocused ? (
           <View style={{ height: 240, borderRadius: 16, overflow: 'hidden', marginBottom: 12 }}>
             <CameraView
               style={{ flex: 1 }}
@@ -85,6 +88,8 @@ export default function ScannerScreen({ navigation }: any) {
           value={manual}
           onChangeText={setManual}
           autoCapitalize="characters"
+          returnKeyType="search"
+          onSubmitEditing={() => lookup(manual, 'manual')}
         />
         <Button label="Lookup barcode" onPress={() => lookup(manual, 'manual')} loading={loading} />
         {SHOW_DEMO_TOOLS ? (

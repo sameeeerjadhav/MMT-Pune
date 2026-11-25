@@ -7,7 +7,8 @@ import { Button, Card, Input, Screen, Muted } from '../components/ui';
 import { colors } from '../theme/tokens';
 import { canAccess } from '../utils/roles';
 
-const samplePayload = {
+// Built per visit so a second import in the same session gets a fresh grn_number / external_ref.
+const buildSamplePayload = () => ({
   grn_number: `GRN-DEMO-${Date.now().toString().slice(-6)}`,
   external_system: 'MOCK',
   external_ref: `MOCK-${Date.now()}`,
@@ -26,11 +27,11 @@ const samplePayload = {
       classification: 'BULK',
     },
   ],
-};
+});
 
 export default function GRNImportScreen({ navigation }: any) {
   const { user } = useAuth();
-  const [json, setJson] = useState(JSON.stringify(samplePayload, null, 2));
+  const [json, setJson] = useState(() => JSON.stringify(buildSamplePayload(), null, 2));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');

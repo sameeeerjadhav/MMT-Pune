@@ -34,6 +34,11 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
 
   const onSubmit = async () => {
+    if (loading) return;
+    if (!username.trim() || !password) {
+      setError('Enter your username and password.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -116,6 +121,7 @@ export default function LoginScreen() {
 
             <View style={{ marginTop: 20 }}>
               <Input
+                label="Username"
                 autoCapitalize="none"
                 autoCorrect={false}
                 placeholder="Username"

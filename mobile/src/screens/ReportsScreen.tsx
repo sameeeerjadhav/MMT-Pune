@@ -200,7 +200,6 @@ export default function ReportsScreen() {
       const { downloadAndSharePdf } = await import('../utils/downloadPdf');
       await downloadAndSharePdf(reportsApi.withdrawalsPdfPath(), 'withdrawal-report.pdf');
       setPdfMsg('Withdrawal PDF ready to share / save');
-      setTitle('Withdrawals');
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
