@@ -6,9 +6,11 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import Svg, { Path, Rect } from 'react-native-svg';
+import Svg, { Defs, LinearGradient as SvgGradient, Path, Rect, Stop } from 'react-native-svg';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { dashboardApi, warehouseApi } from '../api/endpoints';
@@ -35,13 +37,30 @@ import { colors, fonts, radius, shadow, spacing } from '../theme/tokens';
 import { useTabScrollPadding } from '../hooks/useTabScrollPadding';
 import { canAccess, roleLabel } from '../utils/roles';
 
-const PAGE_BG = '#EEF2F6';
+const PAGE_BG = '#F2F6FC';
 const CARD = '#FFFFFF';
+const BLUE = '#0B6CF5';
+const SIDE_PAD = 16;
+const MAX_LAYOUT_WIDTH = 480;
 
 function formatQty(value: unknown) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '—';
   return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+
+/** Stock quantities can be fractional (kg, m), so keep up to 3 decimals but drop trailing zeros. */
+function formatAmount(value: unknown) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  return n.toLocaleString(undefined, { maximumFractionDigits: 3 });
+}
+
+function movementLabel(type?: string | null) {
+  if (!type) return 'Movement';
+  if (type === 'FIFO_OVERRIDE') return 'Withdraw (override)';
+  const words = type.toLowerCase().replace(/_/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 function timeAgo(iso?: string | null) {
@@ -66,9 +85,15 @@ type ActionItem = {
 export default function DashboardScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
   const { user } = useAuth();
   const scrollPad = useTabScrollPadding(28);
-  const scrollRef = useRef<ScrollView>(null);
+  // Three metric cards and five quick actions fit the first screen; the rest scroll sideways.
+  // Width is capped so tablets / web previews don't stretch the cards.
+  const layoutWidth = Math.min(screenWidth, MAX_LAYOUT_WIDTH);
+  const metricWidth = Math.floor((layoutWidth - SIDE_PAD * 2 - 10 * 2) / 3);
+  const actionWidth = Math.floor((layoutWidth - SIDE_PAD * 2 - 6 * 4) / 5);
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const alertsY = useRef(0);
   const [data, setData] = useState<any>(null);
   const [warehouseLabel, setWarehouseLabel] = useState('');
@@ -93,7 +118,9 @@ export default function DashboardScreen() {
       const rows = Array.isArray(wh?.data) ? wh.data : wh?.data?.results || [];
       const first = rows[0];
       if (first?.name || first?.code) {
-        setWarehouseLabel(String(first.name || first.code));
+        // Show how many more warehouses exist instead of silently hiding them.
+        const extra = rows.length > 1 ? ` +${rows.length - 1}` : '';
+        setWarehouseLabel(`${first.name || first.code}${extra}`);
       }
     } catch (e) {
       setError(getErrorMessage(e));
@@ -210,16 +237,23 @@ export default function DashboardScreen() {
   const allocateCount = recentTx.filter((t: any) => t.type === 'ALLOCATE' || t.type === 'RECEIVE').length;
 
   const legend = [
-    { label: 'Racks', color: '#3B82F6', value: data?.total_racks },
-    { label: 'Batches', color: '#60A5FA', value: data?.bulk_batches },
-    { label: 'Units', color: '#93C5FD', value: data?.individual_units },
+    { label: 'Racks', color: '#2F7BEF', value: data?.total_racks },
+    { label: 'Batches', color: '#1F5FD6', value: data?.bulk_batches },
+    { label: 'Units', color: '#8CC0F4', value: data?.individual_units },
     { label: 'GRN', color: '#F59E0B', value: data?.pending_grns },
-    { label: 'QA', color: '#FDBA74', value: data?.testing_pending },
+    { label: 'QA', color: '#FBD5A5', value: data?.testing_pending },
     { label: 'Alerts', color: '#9CA3AF', value: alertCount },
   ];
 
   return (
     <View style={styles.root}>
+      <LinearGradient
+        pointerEvents="none"
+        colors={['#D6E6FB', '#E6EFFB', PAGE_BG]}
+        start={{ x: 1, y: 0 }}
+        end={{ x: 0.25, y: 1 }}
+        style={styles.backdrop}
+      />
       <ScrollView showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
         ref={scrollRef}
         contentContainerStyle={{
@@ -235,6 +269,8 @@ export default function DashboardScreen() {
         }
         keyboardShouldPersistTaps="handled"
       >
+        <HeaderWaves />
+
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerTop}>
@@ -277,22 +313,25 @@ export default function DashboardScreen() {
           {warehouseLabel ? (
             <Pressable
               onPress={() => canAccess(user?.role, 'warehouse') && navigation.navigate('Warehouse')}
+              accessibilityRole="button"
+              accessibilityLabel={`Warehouse ${warehouseLabel}. Open floors`}
               style={styles.locationPill}
             >
-              <PinIcon size={14} color={colors.primary} />
+              <PinIcon size={15} color={BLUE} />
               <Text style={styles.locationText} numberOfLines={1}>
                 {warehouseLabel}
               </Text>
+              {canAccess(user?.role, 'warehouse') ? <ChevronDown color={colors.navy} /> : null}
             </Pressable>
           ) : null}
 
           <View style={styles.searchRow}>
             <View style={styles.searchBox}>
-              <SearchIcon size={18} color="#94A3B8" />
+              <SearchIcon size={20} color="#7B8794" />
               <TextInput
                 value={search}
                 onChangeText={setSearch}
-                placeholder="Search SKU, bin, barcode, order…"
+                placeholder="Batch"
                 placeholderTextColor="#94A3B8"
                 style={styles.searchInput}
                 returnKeyType="search"
@@ -321,10 +360,11 @@ export default function DashboardScreen() {
           decelerationRate="fast"
         >
           <MetricCard
+            width={metricWidth}
             label="Available"
             value={formatQty(data?.available_quantity)}
             hint={`${formatQty(data?.bulk_batches)} batches`}
-            tone="success"
+            tone="primary"
             chart="spark"
             onPress={
               canAccess(user?.role, 'inventory')
@@ -337,6 +377,7 @@ export default function DashboardScreen() {
             }
           />
           <MetricCard
+            width={metricWidth}
             label="Low Stock"
             value={`${lowStock.length}`}
             hint={lowStock.length ? 'Qty ≤ 10' : 'None flagged'}
@@ -353,6 +394,7 @@ export default function DashboardScreen() {
             }
           />
           <MetricCard
+            width={metricWidth}
             label="Reorder / expiry"
             value={`${stockAlertTotal}`}
             hint={
@@ -360,11 +402,12 @@ export default function DashboardScreen() {
                 ? `${stockAlerts.low_stock || 0} low · ${(stockAlerts.expired || 0) + (stockAlerts.expiring_soon || 0)} expiry`
                 : 'All clear'
             }
-            tone="warning"
+            tone="neutral"
             chart="bars"
             onPress={() => navigation.navigate('Alerts')}
           />
           <MetricCard
+            width={metricWidth}
             label="Inbound GRN"
             value={formatQty(data?.pending_grns)}
             hint="Draft receipts"
@@ -381,6 +424,7 @@ export default function DashboardScreen() {
             }
           />
           <MetricCard
+            width={metricWidth}
             label="QA pending"
             value={formatQty(data?.testing_pending)}
             hint="Awaiting test"
@@ -411,21 +455,27 @@ export default function DashboardScreen() {
               <Pressable
                 key={a.tab + a.title}
                 onPress={() => openAction(a.tab)}
-                style={({ pressed }) => [styles.actionChip, { opacity: pressed ? 0.9 : 1 }]}
+                style={({ pressed }) => [
+                  styles.actionChip,
+                  { width: actionWidth, opacity: pressed ? 0.9 : 1 },
+                ]}
               >
                 <View
                   style={[
                     styles.actionIconWrap,
                     {
                       backgroundColor: selected ? colors.primarySoft : CARD,
-                      borderColor: selected ? colors.primary : '#E5EAF0',
+                      borderColor: selected ? colors.primary : 'transparent',
                     },
                     !selected && shadow.soft,
                   ]}
                 >
                   {a.icon(color)}
                 </View>
-                <Text style={[styles.actionLabel, selected && { color: colors.primary }]}>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.actionLabel, selected && { color: colors.primary }]}
+                >
                   {a.title}
                 </Text>
               </Pressable>
@@ -455,7 +505,7 @@ export default function DashboardScreen() {
             ))}
           </View>
           <Text style={styles.capacityMeta}>
-            Today: {withdrawCount} withdrawn · {allocateCount} received/stowed
+            Recent: {withdrawCount} withdrawn · {allocateCount} received/stowed
           </Text>
         </View>
 
@@ -475,8 +525,8 @@ export default function DashboardScreen() {
           </View>
 
           {alertCount === 0 ? (
-            <View style={[styles.panel, { marginBottom: spacing.md }]}>
-              <Muted>No FIFO or low-stock alerts right now</Muted>
+            <View style={[styles.panel, styles.emptyAlerts]}>
+              <Text style={styles.emptyAlertsText}>No FIFO or low-stock alerts right now</Text>
             </View>
           ) : (
             <View style={{ paddingHorizontal: spacing.md, gap: 10, marginBottom: spacing.md }}>
@@ -520,7 +570,7 @@ export default function DashboardScreen() {
                       {a.batch_code} · {a.item__name}
                     </Text>
                     <Text style={styles.alertSub} numberOfLines={1}>
-                      Low stock · Qty {a.available_qty}
+                      Low stock · Qty {formatAmount(a.available_qty)}
                     </Text>
                   </View>
                 </Pressable>
@@ -538,8 +588,9 @@ export default function DashboardScreen() {
             (recentTx.length > 0 ? recentTx.slice(0, 5) : recentWithdrawals.slice(0, 5)).map(
               (row: any, idx: number, arr: any[]) => {
                 const isTx = row.display_type != null || row.type != null;
+                const isOut = row.type === 'WITHDRAW' || row.type === 'FIFO_OVERRIDE';
                 const tone =
-                  row.type === 'WITHDRAW'
+                  isOut
                     ? { bg: '#E8F8EF', fg: colors.success }
                     : row.type === 'RECEIVE' || row.type === 'ALLOCATE'
                       ? { bg: colors.primarySoft, fg: colors.primary }
@@ -558,7 +609,7 @@ export default function DashboardScreen() {
                     style={[styles.activityRow, idx < arr.length - 1 && styles.rowDivider]}
                   >
                     <View style={[styles.activityIcon, { backgroundColor: tone.bg }]}>
-                      {row.type === 'WITHDRAW' || !isTx ? (
+                      {isOut || !isTx ? (
                         <OutIcon size={16} color={tone.fg} />
                       ) : (
                         <CubeIcon size={16} color={tone.fg} />
@@ -567,7 +618,7 @@ export default function DashboardScreen() {
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={styles.activityTitle} numberOfLines={1}>
                         {isTx
-                          ? `${row.display_type || row.type}${row.quantity != null ? ` · ${row.quantity}` : ''}`
+                          ? `${movementLabel(row.display_type || row.type)}${row.quantity != null ? ` · ${formatAmount(row.quantity)}` : ''}`
                           : `Withdrawal #${row.id} · ${row.purpose}`}
                       </Text>
                       <Text style={styles.activitySub} numberOfLines={1}>
@@ -598,12 +649,21 @@ function actionColor(tone: ActionItem['tone']) {
   return colors.primary;
 }
 
-function toneSoftBg(tone: ActionItem['tone']) {
-  if (tone === 'accent') return colors.accentSoft;
-  if (tone === 'success') return colors.successSoft;
-  if (tone === 'navy') return '#E8EEF4';
-  if (tone === 'violet') return '#EEEAFF';
-  return colors.primarySoft;
+type MetricTone = 'success' | 'warning' | 'primary' | 'violet' | 'neutral';
+
+function metricPalette(tone: MetricTone) {
+  switch (tone) {
+    case 'success':
+      return { bg: '#E7F7EE', border: '#CFEBDB', fg: '#1A8A55', chart: '#1A8A55', soft: '#B7E4C7' };
+    case 'warning':
+      return { bg: '#FDEBD6', border: '#F8DDBC', fg: '#C97A12', chart: '#F59E0B', soft: '#FBD3A4' };
+    case 'violet':
+      return { bg: '#EEEAFF', border: '#DDD6FA', fg: '#6B5CE7', chart: '#6B5CE7', soft: '#C9C2F5' };
+    case 'neutral':
+      return { bg: '#ECEFF8', border: '#DEE3F1', fg: '#3F4B5E', chart: '#2563EB', soft: '#A9C5F5' };
+    default:
+      return { bg: '#E4EFFC', border: '#D2E3F8', fg: '#1F6FD6', chart: '#2B7BE4', soft: '#A8C8EA' };
+  }
 }
 
 function MetricCard({
@@ -612,23 +672,18 @@ function MetricCard({
   hint,
   tone,
   chart,
+  width,
   onPress,
 }: {
   label: string;
   value: string;
   hint: string;
-  tone: 'success' | 'warning' | 'primary' | 'violet';
+  tone: MetricTone;
   chart: 'spark' | 'bars' | 'lanes' | 'progress';
+  width: number;
   onPress?: () => void;
 }) {
-  const palette =
-    tone === 'success'
-      ? { bg: '#E7F7EE', fg: '#1A8A55', soft: '#B7E4C7' }
-      : tone === 'warning'
-        ? { bg: '#FFF3E0', fg: '#C47A12', soft: '#F5D09A' }
-        : tone === 'violet'
-          ? { bg: '#EEEAFF', fg: '#6B5CE7', soft: '#C9C2F5' }
-          : { bg: '#E7F0FB', fg: '#1A6BB5', soft: '#A8C8EA' };
+  const palette = metricPalette(tone);
 
   return (
     <Pressable
@@ -638,16 +693,88 @@ function MetricCard({
       accessibilityLabel={`${label}: ${value}. ${hint}`}
       style={({ pressed }) => [
         styles.metricCard,
-        { backgroundColor: palette.bg, opacity: pressed && onPress ? 0.9 : 1 },
+        {
+          width,
+          backgroundColor: palette.bg,
+          borderColor: palette.border,
+          opacity: pressed && onPress ? 0.9 : 1,
+        },
       ]}
     >
-      <Text style={[styles.metricLabel, { color: palette.fg }]}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={[styles.metricHint, { color: palette.fg }]}>{hint}</Text>
+      <Text style={[styles.metricLabel, { color: palette.fg }]} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={styles.metricValue} numberOfLines={1}>
+        {value}
+      </Text>
+      <Text style={[styles.metricHint, { color: palette.fg }]} numberOfLines={1}>
+        {hint}
+      </Text>
       <View style={styles.chartWrap}>
-        <MiniChart kind={chart} color={palette.fg} soft={palette.soft} />
+        <MiniChart kind={chart} color={palette.chart} soft={palette.soft} />
       </View>
     </Pressable>
+  );
+}
+
+/** Decorative blue waves behind the header (top right), as in the design mock. */
+function HeaderWaves() {
+  return (
+    <View pointerEvents="none" style={styles.waves}>
+      <Svg width="100%" height="100%" viewBox="0 0 390 260" preserveAspectRatio="xMaxYMin slice">
+        <Defs>
+          <SvgGradient id="waveA" x1="1" y1="0" x2="0" y2="0.6">
+            <Stop offset="0" stopColor="#7FAEEB" stopOpacity={0.55} />
+            <Stop offset="1" stopColor="#BFD7F6" stopOpacity={0.05} />
+          </SvgGradient>
+          <SvgGradient id="waveB" x1="1" y1="0" x2="0.2" y2="1">
+            <Stop offset="0" stopColor="#5E96E6" stopOpacity={0.5} />
+            <Stop offset="1" stopColor="#9CC2F2" stopOpacity={0.04} />
+          </SvgGradient>
+          <SvgGradient id="waveC" x1="1" y1="0" x2="0" y2="0">
+            <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.55} />
+            <Stop offset="1" stopColor="#FFFFFF" stopOpacity={0} />
+          </SvgGradient>
+        </Defs>
+        <Path
+          d="M120 0 C160 70 235 135 300 158 C340 172 368 176 390 174 L390 0 Z"
+          fill="url(#waveA)"
+        />
+        <Path d="M250 0 C285 52 335 92 390 106 L390 0 Z" fill="url(#waveB)" />
+        <Path
+          d="M150 118 C225 176 320 172 390 112 L390 196 C330 232 235 224 150 118 Z"
+          fill="url(#waveC)"
+        />
+        <Path
+          d="M150 118 C225 176 320 172 390 112"
+          fill="none"
+          stroke="#FFFFFF"
+          strokeOpacity={0.75}
+          strokeWidth={1.5}
+        />
+        <Path
+          d="M175 96 C240 150 330 150 390 92"
+          fill="none"
+          stroke="#FFFFFF"
+          strokeOpacity={0.45}
+          strokeWidth={1}
+        />
+      </Svg>
+    </View>
+  );
+}
+
+function ChevronDown({ color }: { color: string }) {
+  return (
+    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M6 9l6 6 6-6"
+        stroke={color}
+        strokeWidth={2.6}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
   );
 }
 
@@ -710,17 +837,19 @@ function MiniChart({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: PAGE_BG },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, height: 380 },
+  waves: { position: 'absolute', top: 0, left: 0, right: 0, height: 260 },
   header: { paddingHorizontal: spacing.md, marginBottom: 6 },
-  headerTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  headerTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   hello: {
     fontFamily: fonts.display,
-    fontSize: 28,
-    letterSpacing: -0.7,
+    fontSize: 22,
+    letterSpacing: -0.4,
     color: colors.navy,
   },
   roleLine: {
     fontFamily: fonts.uiMedium,
-    fontSize: 13,
+    fontSize: 13.5,
     color: '#7B8794',
     marginTop: 3,
   },
@@ -754,30 +883,31 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: CARD,
     borderRadius: radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   locationText: {
     fontFamily: fonts.uiSemi,
-    fontSize: 12,
+    fontSize: 13.5,
     color: colors.navy,
     maxWidth: 220,
   },
-  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 4 },
   searchBox: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     backgroundColor: CARD,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    height: 50,
+    borderRadius: radius.pill,
+    paddingHorizontal: 18,
+    height: 52,
     borderWidth: 1,
-    borderColor: '#E5EAF0',
+    borderColor: '#E8EEF6',
+    ...shadow.soft,
   },
   searchInput: {
     flex: 1,
@@ -787,59 +917,63 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   scanBtn: {
-    width: 50,
-    height: 50,
-    borderRadius: 14,
-    backgroundColor: '#F97316',
+    width: 56,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: BLUE,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: BLUE,
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
   },
   metricsRow: {
     paddingHorizontal: spacing.md,
-    paddingVertical: 12,
+    paddingVertical: 14,
     gap: 10,
   },
   metricCard: {
-    width: 148,
-    borderRadius: 18,
-    padding: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 12,
     paddingBottom: 10,
-    minHeight: 132,
+    minHeight: 112,
   },
-  metricLabel: { fontFamily: fonts.uiSemi, fontSize: 12 },
+  metricLabel: { fontFamily: fonts.uiSemi, fontSize: 12.5 },
   metricValue: {
     fontFamily: fonts.displaySemi,
-    fontSize: 26,
+    fontSize: 24,
     color: colors.navy,
     marginTop: 6,
-    letterSpacing: -0.5,
+    letterSpacing: -0.4,
   },
-  metricHint: { fontFamily: fonts.uiMedium, fontSize: 11, marginTop: 2, opacity: 0.85 },
-  chartWrap: { marginTop: 10 },
+  metricHint: { fontFamily: fonts.uiMedium, fontSize: 11.5, marginTop: 2, opacity: 0.9 },
+  chartWrap: { marginTop: 8 },
   sectionTitle: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 13,
-    color: '#7B8794',
+    fontFamily: fonts.uiBold,
+    fontSize: 17,
+    color: colors.navy,
     paddingHorizontal: spacing.md,
-    marginBottom: 10,
+    marginBottom: 12,
     marginTop: 4,
   },
   sectionTitleInline: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 13,
-    color: '#7B8794',
+    fontFamily: fonts.uiBold,
+    fontSize: 17,
+    color: colors.navy,
   },
   sectionHead: {
     paddingHorizontal: spacing.md,
-    marginBottom: 10,
+    marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  seeAll: { fontFamily: fonts.uiSemi, fontSize: 13, color: colors.primary },
-  actionsRow: { paddingHorizontal: spacing.md, gap: 12, paddingBottom: 14 },
+  seeAll: { fontFamily: fonts.uiBold, fontSize: 14, color: BLUE },
+  actionsRow: { paddingHorizontal: spacing.md, gap: 6, paddingBottom: 16 },
   actionChip: {
-    width: 72,
     alignItems: 'center',
   },
   actionIconWrap: {
@@ -851,11 +985,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: CARD,
     borderWidth: 1.5,
-    borderColor: '#E5EAF0',
+    borderColor: 'transparent',
   },
   actionLabel: {
-    fontFamily: fonts.uiSemi,
-    fontSize: 12,
+    fontFamily: fonts.uiMedium,
+    fontSize: 12.5,
     color: colors.text,
     textAlign: 'center',
   },
@@ -863,40 +997,54 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     marginBottom: spacing.md,
     backgroundColor: CARD,
-    borderRadius: 20,
-    padding: 16,
+    borderRadius: 22,
+    padding: 18,
   },
-  capacityHead: { marginBottom: 12 },
+  emptyAlerts: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  emptyAlertsText: {
+    fontFamily: fonts.ui,
+    fontSize: 14,
+    color: '#64748B',
+    textAlign: 'center',
+  },
+  capacityHead: { marginBottom: 14 },
   capacityTitle: {
     fontFamily: fonts.displaySemi,
-    fontSize: 20,
+    fontSize: 22,
     color: colors.navy,
   },
   capacitySub: {
     fontFamily: fonts.ui,
-    fontSize: 13,
+    fontSize: 14,
     color: '#7B8794',
     marginTop: 4,
   },
   progressTrack: {
-    height: 12,
+    height: 14,
     borderRadius: 8,
-    backgroundColor: '#E8EEF5',
+    backgroundColor: '#DCE6F5',
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#3B82F6',
+    backgroundColor: '#2F6FEB',
     borderRadius: 8,
   },
   legendRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    columnGap: 10,
+    rowGap: 8,
     marginTop: 14,
   },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  legendDot: { width: 8, height: 8, borderRadius: 2 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendText: { fontFamily: fonts.uiMedium, fontSize: 11, color: '#64748B' },
   capacityMeta: {
     fontFamily: fonts.uiMedium,
