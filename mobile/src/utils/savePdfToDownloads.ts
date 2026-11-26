@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import {
   isSaveToDownloadsAvailable,
   saveBase64PdfToDownloads,
-} from 'save-to-downloads';
+} from '../../modules/save-to-downloads/src';
 
 function stripDataUrl(base64OrDataUrl: string) {
   const idx = base64OrDataUrl.indexOf('base64,');
