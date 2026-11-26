@@ -52,8 +52,19 @@ Connect the same GitHub repo in Dokploy if not already linked.
 
 Set these (use a long random secret):
 
+Generate `DJANGO_SECRET_KEY` once (it signs every login token) and paste it into Dokploy only — never into git:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(64))"
+# or: openssl rand -base64 64
+```
+
+The API refuses to start with `DJANGO_DEBUG=False` if the key is missing, shorter than 32 characters or a placeholder.
+Changing the key later signs everyone out (they just log in again), so pick it once and keep a copy in a password manager.
+
 ```env
 DJANGO_SECRET_KEY=REPLACE_WITH_LONG_RANDOM_SECRET
+DJANGO_NUM_PROXIES=1
 DJANGO_DEBUG=False
 DJANGO_ALLOWED_HOSTS=mmt.labxco.cloud
 DJANGO_CSRF_TRUSTED_ORIGINS=https://mmt.labxco.cloud
@@ -63,6 +74,13 @@ DB_USER=warehouse
 DB_PASSWORD=REPLACE_WITH_STRONG_DB_PASSWORD
 COMPANY_NAME=Airport Equipment Manufacturing
 ```
+
+`DJANGO_NUM_PROXIES` is how many reverse proxies sit in front of the API: `1` for Traefik alone, `2` if Cloudflare
+(or another proxy) is also in front. It decides which IP address the login lockout and rate limits see; a wrong value
+makes everyone look like the proxy (too low) or lets callers fake their address (too high).
+
+Nightly database backups run automatically (`db-backup` service). Read [backups.md](backups.md) to set up an
+off-server copy and to practise a restore.
 
 Do **not** run `seed_demo` on production unless you want demo users/data.
 
