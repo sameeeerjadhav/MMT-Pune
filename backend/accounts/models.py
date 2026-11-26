@@ -1,6 +1,7 @@
 from django.contrib.auth.models import AbstractUser, UserManager as DjangoUserManager
 from django.db import models, transaction
 from django.db.models import Q
+from django.db.models.functions import Lower
 
 
 class Role(models.Model):
@@ -48,6 +49,17 @@ class User(AbstractUser):
     employee_id = models.CharField(max_length=50, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(AbstractUser.Meta):
+        constraints = [
+            # Login accepts an email, so two accounts must never share one (any letter case).
+            # Accounts without an email are unaffected.
+            models.UniqueConstraint(
+                Lower('email'),
+                condition=~Q(email=''),
+                name='accounts_user_email_ci_unique',
+            ),
+        ]
 
     @property
     def role_code(self):

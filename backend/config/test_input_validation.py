@@ -1,6 +1,7 @@
 """Bad client input must produce 4xx responses, never a 500."""
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
@@ -91,17 +92,12 @@ class AccountValidationTests(WarehouseTestMixin, TestCase):
     def setUp(self):
         self.setUpWarehouse()
 
-    def test_login_with_shared_email_is_rejected_not_500(self):
-        for name in ('dup_a', 'dup_b'):
-            User.objects.create_user(
-                username=name, password='pass12345', email='same@example.com', role=self.admin.role
-            )
-        res = self.client.post(
-            '/api/auth/login/',
-            {'username': 'same@example.com', 'password': 'pass12345'},
-            content_type='application/json',
-        )
-        self.assertEqual(res.status_code, 400)
+    def test_database_refuses_two_users_with_the_same_email(self):
+        # A shared email would make email-login ambiguous, so the database itself forbids it
+        # (any letter case). Covered end-to-end in accounts/test_email_and_lockout.py.
+        User.objects.create_user(username='dup_a', email='same@example.com', role=self.admin.role)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            User.objects.create_user(username='dup_b', email='SAME@example.com', role=self.admin.role)
 
     def test_staff_create_rejects_duplicate_email(self):
         User.objects.create_user(username='has_mail', email='taken@example.com', role=self.admin.role)
