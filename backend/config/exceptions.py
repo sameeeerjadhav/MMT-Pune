@@ -38,7 +38,7 @@ def custom_exception_handler(exc, context):
             message = str(detail['detail'])
         else:
             message = 'Request failed'
-        return Response(
+        wrapped = Response(
             {
                 'code': 'ERROR',
                 'message': message,
@@ -46,6 +46,11 @@ def custom_exception_handler(exc, context):
             },
             status=response.status_code,
         )
+        # Keep the headers clients rely on (e.g. how long to wait after a 429).
+        for header in ('Retry-After', 'WWW-Authenticate'):
+            if header in response:
+                wrapped[header] = response[header]
+        return wrapped
 
     set_rollback()
     logger.error('Unhandled API exception', exc_info=exc)
