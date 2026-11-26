@@ -3,12 +3,14 @@ from django.db.models import Q
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 from drf_spectacular.utils import extend_schema
 
+from accounts import login_guard
 from accounts.models import Role
 from accounts.permissions import IsAdmin
 from accounts.serializers import (
@@ -75,8 +77,16 @@ class LoginView(APIView):
 
     @extend_schema(request=LoginSerializer, responses=UserSerializer)
     def post(self, request):
+        data = request.data if hasattr(request.data, 'get') else {}
+        attempted = str(data.get('username') or '')
+        login_guard.ensure_allowed(request, attempted)
         serializer = LoginSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except ValidationError:
+            login_guard.record_failure(request, attempted)
+            raise
+        login_guard.record_success(request, attempted)
         user = serializer.validated_data['user']
         user.claim_main_admin_if_needed()
         refresh = RefreshToken.for_user(user)

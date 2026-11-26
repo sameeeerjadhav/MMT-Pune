@@ -8,7 +8,11 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'insecure-dev-key')
+# Local development / tests only. Long enough that JWT signing does not warn about a short key.
+DEV_SECRET_KEY = 'insecure-dev-key-for-local-development-and-tests-only-0123456789abcdef'
+# The signing key for sessions AND JWT tokens: anyone who learns it can forge a login.
+MIN_SECRET_KEY_LENGTH = 32  # HS256 recommends a key of at least 32 bytes
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', DEV_SECRET_KEY)
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes')
 ALLOWED_HOSTS = [h.strip() for h in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
 # Phone/LAN IP changes often during Expo Go — allow any host while debugging.
@@ -24,8 +28,18 @@ CSRF_TRUSTED_ORIGINS = [
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
 
-if not DEBUG and SECRET_KEY == 'insecure-dev-key':
-    raise ImproperlyConfigured('DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is False')
+if not DEBUG:
+    _weak_key = (
+        SECRET_KEY == DEV_SECRET_KEY
+        or len(SECRET_KEY) < MIN_SECRET_KEY_LENGTH
+        or SECRET_KEY.lower().startswith(('insecure', 'change-me', 'changeme'))
+    )
+    if _weak_key:
+        raise ImproperlyConfigured(
+            f'DJANGO_SECRET_KEY must be a long random value (at least {MIN_SECRET_KEY_LENGTH} characters) '
+            'when DJANGO_DEBUG is False. Generate one with: '
+            'python -c "import secrets; print(secrets.token_urlsafe(64))"'
+        )
 if not DEBUG and '*' in ALLOWED_HOSTS:
     raise ImproperlyConfigured('DJANGO_ALLOWED_HOSTS must not include * when DJANGO_DEBUG is False')
 
@@ -104,6 +118,15 @@ else:
         }
     }
 
+# Shared by all gunicorn workers (unlike in-memory caches), so rate limits and login lockouts
+# really apply. Created by `manage.py createcachetable` (run on container start).
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'django_cache',
+    }
+}
+
 AUTH_USER_MODEL = 'accounts.User'
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -164,6 +187,9 @@ REST_FRAMEWORK = {
         'anon': '30/min',
         'user': '300/min',
     },
+    # Reverse proxies in front of gunicorn (Traefik = 1; add 1 more if Cloudflare is also in front).
+    # Used to find the real client address for throttling and login lockout; 0 trusts only the socket.
+    'NUM_PROXIES': int(os.getenv('DJANGO_NUM_PROXIES', '0' if DEBUG else '1')),
     'EXCEPTION_HANDLER': 'config.exceptions.custom_exception_handler',
 }
 
