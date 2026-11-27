@@ -115,6 +115,18 @@ python manage.py createsuperuser
 
 Or create staff via Django shell. Do not rely on local `Demo@12345` users unless you seed intentionally.
 
+### Unlocking a locked-out account
+
+Five wrong passwords in a row lock an account for about 15 minutes (see `accounts/login_guard.py`). To let
+someone sign in again right away, run this in the api container terminal:
+
+```bash
+python manage.py clear_login_lockouts --username alice   # one account (username or email)
+python manage.py clear_login_lockouts --all              # every account and address
+```
+
+The container creates the lockout cache table on start (`createcachetable` in `entrypoint.sh`).
+
 ---
 
 ## 6. Point the mobile app at production

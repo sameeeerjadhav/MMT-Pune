@@ -65,6 +65,7 @@ Create `/home/warehouse/warehouse-inventory/backend/.env` from `.env.example`:
 ```bash
 cd backend
 python manage.py migrate
+python manage.py createcachetable
 python manage.py collectstatic --noinput
 # Do NOT run seed_demo in production unless explicitly requested for a staging demo box
 ```

@@ -49,6 +49,7 @@ pip install -r backend/requirements.txt
 cd backend
 copy .env.example .env
 python manage.py migrate
+python manage.py createcachetable
 python manage.py seed_demo
 python manage.py runserver 0.0.0.0:8000
 ```

@@ -52,6 +52,16 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Models and migrations are in sync
         run: python manage.py makemigrations --check --dry-run
+      - name: App starts with production settings
+        # DEBUG off makes settings.py enforce the secret key and allowed hosts, so a config that
+        # would crash the server on deploy fails here first.
+        env:
+          DJANGO_DEBUG: "False"
+          DJANGO_ALLOWED_HOSTS: mmt.labxco.cloud
+          DJANGO_CSRF_TRUSTED_ORIGINS: https://mmt.labxco.cloud
+        run: |
+          export DJANGO_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(64))')"
+          python manage.py check --deploy
       - name: Run tests
         run: python manage.py test --noinput
 

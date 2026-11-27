@@ -8,7 +8,7 @@
 2. Python 3.12+ venv → `pip install -r backend/requirements.txt`
 3. Copy `backend/.env.example` → `backend/.env`
    - Include your LAN IP in `DJANGO_ALLOWED_HOSTS` for phone testing
-4. `python manage.py migrate` then `python manage.py seed_demo`
+4. `python manage.py migrate`, then `python manage.py createcachetable` (stores the login lockout counters), then `python manage.py seed_demo`
 5. `python manage.py runserver 0.0.0.0:8000`
 6. `cd mobile && npm install && npx expo start` (Expo Go on Android)
 
