@@ -17,12 +17,6 @@ import { EyeIcon, EyeOffIcon } from '../components/icons';
 import { getErrorMessage } from '../api/client';
 import { colors, fonts, radius, shadow, spacing } from '../theme/tokens';
 
-const DEMO_USERS = [
-  { username: 'employee', role: 'WAREHOUSE_EMPLOYEE' as const },
-  { username: 'supervisor', role: 'SUPERVISOR' as const },
-  { username: 'admin', role: 'ADMIN' as const },
-];
-
 export default function LoginScreen() {
   const { login } = useAuth();
   const insets = useSafeAreaInsets();
