@@ -1,4 +1,7 @@
+from contextlib import contextmanager
+
 from django.contrib.auth import authenticate
+from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
 from accounts.models import Role, User
@@ -47,6 +50,33 @@ class UserSerializer(serializers.ModelSerializer):
         return bool(obj.is_superuser)
 
 
+def _duplicate_error(*, username='', email='', exclude_pk=None):
+    """
+    After an IntegrityError, name the field that clashed. The serializers check for duplicates
+    first, so this only happens when a concurrent request saved the same value in between.
+    Returns None when the failure was something else, so the caller can re-raise it.
+    """
+    others = User.objects.exclude(pk=exclude_pk) if exclude_pk is not None else User.objects.all()
+    if email and others.filter(email__iexact=email).exists():
+        return serializers.ValidationError({'email': ['Email already in use']})
+    if username and others.filter(username__iexact=username).exists():
+        return serializers.ValidationError({'username': ['Username already taken']})
+    return None
+
+
+@contextmanager
+def _translate_duplicates(*, username='', email='', exclude_pk=None):
+    """Turn a duplicate username/email database error into a normal 400 validation error."""
+    try:
+        with transaction.atomic():
+            yield
+    except IntegrityError:
+        error = _duplicate_error(username=username, email=email, exclude_pk=exclude_pk)
+        if error is None:
+            raise
+        raise error
+
+
 class StaffUserCreateSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     password = serializers.CharField(min_length=6, write_only=True)
@@ -80,18 +110,21 @@ class StaffUserCreateSerializer(serializers.Serializer):
         role_code = validated_data['role']
         role = roles[role_code]
         is_admin = role_code == Role.Code.ADMIN
-        return User.objects.create_user(
-            username=validated_data['username'],
-            password=validated_data['password'],
-            email=validated_data.get('email') or '',
-            first_name=validated_data.get('first_name') or '',
-            last_name=validated_data.get('last_name') or '',
-            employee_id=validated_data.get('employee_id') or '',
-            role=role,
-            # Secondary admins get staff console access but never become another main admin.
-            is_staff=is_admin,
-            is_superuser=False,
-        )
+        with _translate_duplicates(
+            username=validated_data['username'], email=validated_data.get('email') or ''
+        ):
+            return User.objects.create_user(
+                username=validated_data['username'],
+                password=validated_data['password'],
+                email=validated_data.get('email') or '',
+                first_name=validated_data.get('first_name') or '',
+                last_name=validated_data.get('last_name') or '',
+                employee_id=validated_data.get('employee_id') or '',
+                role=role,
+                # Secondary admins get staff console access but never become another main admin.
+                is_staff=is_admin,
+                is_superuser=False,
+            )
 
 
 class StaffUserUpdateSerializer(serializers.Serializer):
@@ -142,7 +175,8 @@ class StaffUserUpdateSerializer(serializers.Serializer):
             setattr(instance, key, value)
         if password:
             instance.set_password(password)
-        instance.save()
+        with _translate_duplicates(email=instance.email, exclude_pk=instance.pk):
+            instance.save()
         return instance
 
 
@@ -207,7 +241,10 @@ class ProfileUpdateSerializer(serializers.Serializer):
         self.password_changed = bool(new_password)
         if new_password:
             instance.set_password(new_password)
-        instance.save()
+        with _translate_duplicates(
+            username=instance.username, email=instance.email, exclude_pk=instance.pk
+        ):
+            instance.save()
         return instance
 
 

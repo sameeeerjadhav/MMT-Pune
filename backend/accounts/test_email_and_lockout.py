@@ -3,14 +3,23 @@
 import os
 import subprocess
 import sys
+from io import StringIO
 from pathlib import Path
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.db import DatabaseError
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
+from accounts.serializers import (
+    ProfileUpdateSerializer,
+    StaffUserCreateSerializer,
+    StaffUserUpdateSerializer,
+)
 from audit.models import AuditLog
 from config.factories import WarehouseTestMixin
 
@@ -125,6 +134,177 @@ class LoginLockoutTests(TestCase):
     def test_malformed_body_does_not_crash(self):
         res = self.client.post(self.URL, [1, 2, 3], format='json')
         self.assertEqual(res.status_code, 400)
+
+
+@FAST_HASH
+class LoginLockoutRobustnessTests(TestCase):
+    URL = '/api/auth/login/'
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        User.objects.create_user(username='alice', email='alice@example.com', password='right-pass-1')
+        self.client = APIClient()
+
+    def login(self, who, password, ip='10.0.0.1'):
+        return self.client.post(
+            self.URL, {'username': who, 'password': password}, format='json', REMOTE_ADDR=ip
+        )
+
+    def test_username_and_email_share_one_counter(self):
+        for who in ('alice', 'alice@example.com', 'ALICE', 'Alice@Example.com', 'alice'):
+            self.assertEqual(self.login(who, 'wrong').status_code, 400)
+        self.assertEqual(self.login('alice', 'right-pass-1').status_code, 429)
+        self.assertEqual(self.login('alice@example.com', 'right-pass-1').status_code, 429)
+
+    def test_unknown_email_does_not_crash_and_counts_on_its_own(self):
+        for _ in range(5):
+            self.assertEqual(self.login('ghost@example.com', 'wrong').status_code, 400)
+        self.assertEqual(self.login('ghost@example.com', 'wrong').status_code, 429)
+        self.assertEqual(self.login('alice', 'right-pass-1').status_code, 200)
+
+    def test_sign_in_still_works_when_the_cache_is_broken(self):
+        broken = mock.MagicMock()
+        for name in ('get', 'set', 'delete'):
+            getattr(broken, name).side_effect = DatabaseError('no such table: django_cache')
+        with mock.patch('accounts.login_guard.cache', broken), self.assertLogs(
+            'accounts.login_guard', level='ERROR'
+        ):
+            self.assertEqual(self.login('alice', 'right-pass-1').status_code, 200)
+            self.assertEqual(self.login('alice', 'wrong').status_code, 400)
+
+
+@FAST_HASH
+class ClearLoginLockoutsCommandTests(TestCase):
+    URL = '/api/auth/login/'
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        User.objects.create_user(username='alice', email='alice@example.com', password='right-pass-1')
+        User.objects.create_user(username='bob', password='right-pass-2')
+        self.client = APIClient()
+
+    def login(self, who, password):
+        return self.client.post(
+            self.URL, {'username': who, 'password': password}, format='json', REMOTE_ADDR='10.0.0.1'
+        )
+
+    def lock(self, who):
+        for _ in range(5):
+            self.assertEqual(self.login(who, 'wrong').status_code, 400)
+        self.assertEqual(self.login(who, 'right-pass-1').status_code, 429)
+
+    def run_command(self, **options):
+        out = StringIO()
+        call_command('clear_login_lockouts', stdout=out, **options)
+        return out.getvalue()
+
+    def test_unlocks_one_account_by_username(self):
+        self.lock('alice')
+        output = self.run_command(username='alice')
+        self.assertIn('Cleared 2', output)  # the account and the person+account counters
+        self.assertEqual(self.login('alice', 'right-pass-1').status_code, 200)
+
+    def test_unlocks_an_account_by_email_even_if_it_was_locked_by_username(self):
+        self.lock('alice')
+        self.run_command(username='Alice@Example.com')
+        self.assertEqual(self.login('alice', 'right-pass-1').status_code, 200)
+
+    def test_unlocking_one_account_leaves_others_locked(self):
+        self.lock('alice')
+        for _ in range(5):
+            self.login('bob', 'wrong')
+        self.run_command(username='alice')
+        self.assertEqual(self.login('alice', 'right-pass-1').status_code, 200)
+        self.assertEqual(self.login('bob', 'right-pass-2').status_code, 429)
+
+    def test_all_clears_every_lockout(self):
+        self.lock('alice')
+        output = self.run_command(all=True)
+        self.assertIn('Cleared 3', output)  # address, person+account and account counters
+        self.assertEqual(self.login('alice', 'right-pass-1').status_code, 200)
+
+    def test_requires_exactly_one_option(self):
+        with self.assertRaises(CommandError):
+            call_command('clear_login_lockouts', stdout=StringIO())
+        with self.assertRaises(CommandError):
+            call_command('clear_login_lockouts', username='alice', all=True, stdout=StringIO())
+
+
+class DuplicateRaceTests(WarehouseTestMixin, TestCase):
+    """If another request saves the same email first, the user sees a 400, not a server error."""
+
+    def setUp(self):
+        self.setUpWarehouse()
+        self.taken = User.objects.create_user(
+            username='taken_mail', email='dupe@example.com', role=self.employee.role
+        )
+
+    @staticmethod
+    def skip_precheck():
+        # Simulates the other request landing just after the "is it free?" check passed.
+        return mock.patch.object(
+            StaffUserCreateSerializer, 'validate_email', lambda self, value: value
+        )
+
+    def test_create_with_a_taken_email_is_a_400(self):
+        with self.skip_precheck():
+            res = self.admin_api.post(
+                '/api/users/',
+                {
+                    'username': 'newcomer',
+                    'password': 'secret123',
+                    'email': 'DUPE@example.com',
+                    'role': 'WAREHOUSE_EMPLOYEE',
+                },
+                format='json',
+            )
+        self.assertEqual(res.status_code, 400, res.data)
+        self.assertIn('email', res.data['details'])
+        self.assertFalse(User.objects.filter(username='newcomer').exists())
+
+    def test_create_with_a_taken_username_is_a_400(self):
+        with self.skip_precheck(), mock.patch.object(
+            StaffUserCreateSerializer, 'validate_username', lambda self, value: value
+        ):
+            res = self.admin_api.post(
+                '/api/users/',
+                {
+                    'username': 'taken_mail',
+                    'password': 'secret123',
+                    'email': 'other@example.com',
+                    'role': 'WAREHOUSE_EMPLOYEE',
+                },
+                format='json',
+            )
+        self.assertEqual(res.status_code, 400, res.data)
+        self.assertIn('username', res.data['details'])
+
+    def test_staff_edit_with_a_taken_email_is_a_400(self):
+        other = User.objects.create_user(
+            username='other_mail', email='other@example.com', role=self.employee.role
+        )
+        with mock.patch.object(
+            StaffUserUpdateSerializer, 'validate_email', lambda self, value: value
+        ):
+            res = self.admin_api.patch(
+                f'/api/users/{other.id}/', {'email': 'dupe@example.com'}, format='json'
+            )
+        self.assertEqual(res.status_code, 400, res.data)
+        self.assertIn('email', res.data['details'])
+        other.refresh_from_db()
+        self.assertEqual(other.email, 'other@example.com')
+
+    def test_profile_edit_with_a_taken_email_is_a_400(self):
+        with mock.patch.object(
+            ProfileUpdateSerializer, 'validate_email', lambda self, value: value
+        ):
+            res = self.admin_api.patch(
+                '/api/auth/profile/', {'email': 'dupe@example.com'}, format='json'
+            )
+        self.assertEqual(res.status_code, 400, res.data)
+        self.assertIn('email', res.data['details'])
 
 
 class SecretKeyCheckTests(TestCase):

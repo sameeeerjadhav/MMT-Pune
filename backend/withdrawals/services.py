@@ -60,7 +60,9 @@ def _get_stock(model, pk, *, label, for_update=False):
     """Fetch a batch/unit by id; bad or unknown ids become 400/404 instead of a 500."""
     qs = model.objects.select_related('item')
     if for_update:
-        qs = qs.select_for_update()
+        # of=('self',): lock only the batch/unit row, not the shared item row, so withdrawals of
+        # the same item for different stock do not wait on each other.
+        qs = qs.select_for_update(of=('self',))
     try:
         return qs.get(pk=int(pk))
     except (TypeError, ValueError):
