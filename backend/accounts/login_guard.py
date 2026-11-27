@@ -13,15 +13,19 @@ State lives in Django's cache (a shared database table in production), so the li
 all gunicorn workers and survive restarts.
 """
 
+import logging
 import math
 import time
 from dataclasses import dataclass
 
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from rest_framework.exceptions import Throttled
 from rest_framework.throttling import BaseThrottle
 
 from audit.models import AuditLog
+
+logger = logging.getLogger(__name__)
 
 WINDOW_SECONDS = 15 * 60
 
@@ -46,6 +50,28 @@ def _normalise(username: str) -> str:
     return (username or '').strip().lower()[:150]
 
 
+def account_key(identifier: str) -> str:
+    """
+    The account a sign-in attempt is aimed at. Login accepts a username OR an email, so an email is
+    mapped to its account's username; otherwise alternating between the two would give an attacker
+    a separate set of counters for the same account.
+    """
+    name = _normalise(identifier)
+    if '@' in name:
+        try:
+            usernames = list(
+                get_user_model()
+                .objects.filter(email__iexact=name)
+                .values_list('username', flat=True)[:2]
+            )
+        except Exception:
+            logger.error('Login lockout could not resolve an email to its account', exc_info=True)
+            return name
+        if len(usernames) == 1:
+            return _normalise(usernames[0])
+    return name
+
+
 def _keys(ip: str, username: str):
     keys = [(ADDRESS, f'login:addr:{ip}')]
     if username:
@@ -56,7 +82,13 @@ def _keys(ip: str, username: str):
 
 def _read(key: str):
     """Returns (failure_count, window_ends_at) or (0, 0)."""
-    state = cache.get(key)
+    try:
+        state = cache.get(key)
+    except Exception:
+        # A broken cache (e.g. the cache table was never created) must not stop everybody from
+        # signing in. Fail open and make noise in the logs instead.
+        logger.error('Login lockout cache unavailable; limits are not enforced', exc_info=True)
+        return 0, 0.0
     if not state:
         return 0, 0.0
     count, ends_at = state
@@ -70,7 +102,7 @@ def ensure_allowed(request, username: str) -> None:
     ip = client_ip(request)
     now = time.time()
     longest = 0.0
-    for limit, key in _keys(ip, _normalise(username)):
+    for limit, key in _keys(ip, account_key(username)):
         count, ends_at = _read(key)
         if count >= limit.max_failures:
             longest = max(longest, ends_at - now)
@@ -88,7 +120,7 @@ def ensure_allowed(request, username: str) -> None:
 
 def record_failure(request, username: str) -> None:
     ip = client_ip(request)
-    name = _normalise(username)
+    name = account_key(username)
     now = time.time()
     tripped = []
     for limit, key in _keys(ip, name):
@@ -96,7 +128,11 @@ def record_failure(request, username: str) -> None:
         if count == 0:
             ends_at = now + WINDOW_SECONDS  # the window starts at the first failure
         count += 1
-        cache.set(key, (count, ends_at), timeout=max(1, int(ends_at - now) + 1))
+        try:
+            cache.set(key, (count, ends_at), timeout=max(1, int(ends_at - now) + 1))
+        except Exception:
+            logger.error('Login lockout cache unavailable; failure not recorded', exc_info=True)
+            continue
         if count == limit.max_failures:
             tripped.append(limit.name)
     if tripped:
@@ -111,6 +147,9 @@ def record_failure(request, username: str) -> None:
 
 def record_success(request, username: str) -> None:
     """A correct password clears the counter for this person + account (not the shared ones)."""
-    name = _normalise(username)
+    name = account_key(username)
     if name:
-        cache.delete(f'login:pair:{client_ip(request)}:{name}')
+        try:
+            cache.delete(f'login:pair:{client_ip(request)}:{name}')
+        except Exception:
+            logger.error('Login lockout cache unavailable; counter not cleared', exc_info=True)
