@@ -30,8 +30,10 @@ def deallocate_stock(*, allocation_id, user, reason=''):
         allocation_id = int(allocation_id)
     except (TypeError, ValueError):
         raise ApiError('VALIDATION_ERROR', 'Invalid allocation id')
+    # of=('self',): lock only the allocation row. batch/unit are nullable joins, and PostgreSQL
+    # refuses FOR UPDATE on the nullable side of an outer join.
     alloc = (
-        StockAllocation.objects.select_for_update()
+        StockAllocation.objects.select_for_update(of=('self',))
         .select_related('batch', 'unit', 'position')
         .filter(pk=allocation_id, is_active=True, allocation_type='ACTUAL')
         .first()

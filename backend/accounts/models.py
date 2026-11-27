@@ -90,9 +90,11 @@ class User(AbstractUser):
 
         with transaction.atomic():
             # Serialize claimers: lock the same admin set in a stable order.
+            # of=('self',): lock only the user rows. The role join is nullable, and PostgreSQL
+            # refuses FOR UPDATE on the nullable side of an outer join.
             locked = list(
                 type(self)
-                .objects.select_for_update()
+                .objects.select_for_update(of=('self',))
                 .select_related('role')
                 .filter(
                     Q(is_superuser=True)
