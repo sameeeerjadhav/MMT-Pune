@@ -14,9 +14,8 @@ import { useAuth } from '../context/AuthContext';
 import { Button, FieldLabel, Input, Muted, Title } from '../components/ui';
 import { BrandMark } from '../components/BrandMark';
 import { EyeIcon, EyeOffIcon } from '../components/icons';
-import { getErrorMessage, SHOW_DEMO_TOOLS } from '../api/client';
+import { getErrorMessage } from '../api/client';
 import { colors, fonts, radius, shadow, spacing } from '../theme/tokens';
-import { roleBlurb, roleLabel } from '../utils/roles';
 
 const DEMO_USERS = [
   { username: 'employee', role: 'WAREHOUSE_EMPLOYEE' as const },
@@ -164,57 +163,6 @@ export default function LoginScreen() {
               <Button label="Continue" onPress={onSubmit} loading={loading} />
             </View>
 
-            {SHOW_DEMO_TOOLS ? (
-              <>
-                <Text
-                  style={{
-                    marginTop: 22,
-                    marginBottom: 10,
-                    color: colors.muted,
-                    fontSize: 12,
-                    fontFamily: fonts.uiSemi,
-                    letterSpacing: 0.8,
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  Demo roles
-                </Text>
-                {DEMO_USERS.map((u) => (
-                  <Pressable
-                    key={u.username}
-                    onPress={() => {
-                      setUsername(u.username);
-                      setPassword('Demo@12345');
-                      setError('');
-                    }}
-                    style={({ pressed }) => ({
-                      backgroundColor: username === u.username ? colors.primarySoft : colors.surface,
-                      borderRadius: radius.md,
-                      padding: 14,
-                      marginBottom: 10,
-                      opacity: pressed ? 0.9 : 1,
-                      borderWidth: 1,
-                      borderColor: username === u.username ? colors.primary : colors.borderSoft,
-                    })}
-                  >
-                    <Text style={{ fontFamily: fonts.uiBold, color: colors.navy }}>
-                      {roleLabel(u.role)}
-                    </Text>
-                    <Text
-                      style={{
-                        color: colors.muted,
-                        marginTop: 4,
-                        fontSize: 13,
-                        lineHeight: 18,
-                        fontFamily: fonts.ui,
-                      }}
-                    >
-                      {u.username} · {roleBlurb(u.role)}
-                    </Text>
-                  </Pressable>
-                ))}
-              </>
-            ) : null}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
