@@ -2,7 +2,7 @@ from decimal import Decimal
 from unittest import skipIf
 
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import connection, connections
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -162,14 +162,19 @@ class ConcurrentWithdrawParallelTests(TransactionTestCase):
         user_id = self.user.id
 
         def attempt(qty: str):
-            client = APIClient()
-            user = User.objects.get(pk=user_id)
-            client.force_authenticate(user=user)
-            return client.post(
-                '/api/withdrawals/',
-                {'purpose': 'SHIPMENT', 'batch_id': batch_id, 'quantity': qty},
-                format='json',
-            ).status_code
+            try:
+                client = APIClient()
+                user = User.objects.get(pk=user_id)
+                client.force_authenticate(user=user)
+                return client.post(
+                    '/api/withdrawals/',
+                    {'purpose': 'SHIPMENT', 'batch_id': batch_id, 'quantity': qty},
+                    format='json',
+                ).status_code
+            finally:
+                # Each thread has its own DB connection. Close it, otherwise PostgreSQL refuses to
+                # drop the test database afterwards ("being accessed by other users").
+                connections.close_all()
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(attempt, '7'), pool.submit(attempt, '7')]
